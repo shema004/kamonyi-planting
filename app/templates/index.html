@@ -56,8 +56,8 @@
   <div>
     <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Season</label>
     <select id="sel-season" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-      <option value="A">Season A – Urugaryi/Umuhindo (Sep–Feb)</option>
-      <option value="B">Season B – Itumba (Mar–Jun)</option>
+      <option value="A" id="opt-season-a">Season A – Urugaryi/Umuhindo</option>
+      <option value="B" id="opt-season-b">Season B – Itumba</option>
     </select>
   </div>
   <div>
@@ -176,6 +176,19 @@
 {% endblock %}
 {% block scripts %}
 <script>
+// Dynamic season year labels
+(function(){
+  const now   = new Date();
+  const yr    = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const aEnd  = yr + 1;
+  const bYear = month > 6 ? yr + 1 : yr;
+  const optA  = document.getElementById("opt-season-a");
+  const optB  = document.getElementById("opt-season-b");
+  if(optA) optA.textContent = `Season A – Urugaryi/Umuhindo (Sep ${yr} – Feb ${aEnd})`;
+  if(optB) optB.textContent = `Season B – Itumba (Mar ${bYear} – Jun ${bYear})`;
+})();
+
 const SECTOR_COORDS = {
   "Gacurabwenge":[-2.05,29.85],"Karama":[-2.12,29.82],"Kayenzi":[-2.08,29.78],
   "Kayumbu":[-2.15,29.75],"Mugina":[-2.10,29.70],"Musambira":[-2.18,29.80],

@@ -333,6 +333,12 @@ async function loadDecision(){
         <div>
           <div class="text-4xl mb-2">${d.emoji}</div>
           <div class="text-xl font-bold ${c.text}">${d.headline}</div>
+          <div class="text-xs mt-1 font-semibold opacity-70 ${c.text}">${(()=>{
+            const yr=new Date().getFullYear(), mo=new Date().getMonth()+1;
+            return d.season==="A"
+              ? `Season A: Sep ${yr} – Feb ${yr+1}`
+              : `Season B: Mar ${mo>6?yr+1:yr} – Jun ${mo>6?yr+1:yr}`;
+          })()}</div>
           <div class="text-sm text-gray-600 mt-2 leading-relaxed">${d.advice}</div>
         </div>
         <div class="text-right flex-shrink-0">

@@ -177,7 +177,7 @@
 {% block scripts %}
 <script>
 // Dynamic season year labels
-document.addEventListener("DOMContentLoaded", function(){
+(function(){
   const now   = new Date();
   const yr    = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -187,7 +187,7 @@ document.addEventListener("DOMContentLoaded", function(){
   const optB  = document.getElementById("opt-season-b");
   if(optA) optA.textContent = `Season A – Urugaryi/Umuhindo (Sep ${yr} – Feb ${aEnd})`;
   if(optB) optB.textContent = `Season B – Itumba (Mar ${bYear} – Jun ${bYear})`;
-});
+})();
 
 const SECTOR_COORDS = {
   "Gacurabwenge":[-2.05,29.85],"Karama":[-2.12,29.82],"Kayenzi":[-2.08,29.78],
@@ -509,12 +509,6 @@ async function loadDecisionSummary(){
           <span class="text-lg">${d.emoji}</span>
         </div>
         <div class="text-xs font-bold mb-1" style="color:${cm.text}">${d.headline}</div>
-        <div class="text-xs mb-1" style="color:${cm.text};opacity:0.7">${(()=>{
-          const yr=new Date().getFullYear(), mo=new Date().getMonth()+1;
-          return d.season==="A"
-            ? \`Sep \${yr} – Feb \${yr+1}\`
-            : \`Mar \${mo>6?yr+1:yr} – Jun \${mo>6?yr+1:yr}\`;
-        })()}</div>
         <div class="text-xs text-gray-500">${d.action.slice(0,60)}${d.action.length>60?'...':''}</div>
         <div class="text-xs text-gray-400 mt-1">
           Rain: ${d.current_dekad_rain_mm}mm | ${d.weeks_left_in_season}wks left

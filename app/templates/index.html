@@ -177,7 +177,7 @@
 {% block scripts %}
 <script>
 // Dynamic season year labels
-(function(){
+document.addEventListener("DOMContentLoaded", function(){
   const now   = new Date();
   const yr    = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -187,7 +187,7 @@
   const optB  = document.getElementById("opt-season-b");
   if(optA) optA.textContent = `Season A – Urugaryi/Umuhindo (Sep ${yr} – Feb ${aEnd})`;
   if(optB) optB.textContent = `Season B – Itumba (Mar ${bYear} – Jun ${bYear})`;
-})();
+});
 
 const SECTOR_COORDS = {
   "Gacurabwenge":[-2.05,29.85],"Karama":[-2.12,29.82],"Kayenzi":[-2.08,29.78],

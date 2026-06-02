@@ -19,6 +19,7 @@ from recorder    import (try_record_today, get_recorded_history, get_recording_l
                          get_recorded_summary, init_db, save_bulk_predictions,
                          backfill_actuals_from_excel, get_prediction_vs_actual, get_actuals_summary)
 from season_status import get_current_season_status
+from decision_engine import make_planting_decision, make_all_sector_decisions
 import config
 
 app = FastAPI(
@@ -298,6 +299,79 @@ async def predictions_vs_actuals(
         "records": rows,
         "note":    "Predictions are auto-saved each time /api/predict is called. "
                    "Actuals are backfilled from the Excel file at startup.",
+    }
+
+
+@app.get("/api/decision/{sector}")
+async def sector_decision(
+    sector: str,
+    season: str = Query("A"),
+    api_key: Optional[str] = Query(None),
+):
+    """
+    Real-time planting decision for one sector.
+    Reads current date, compares forecast rainfall to onset threshold,
+    and returns: PLANT_NOW / PLANT_SOON / WAIT / USE_EARLY_VARIETY /
+                 SEASON_ACTIVE / SEASON_ENDING / OFF_SEASON
+    """
+    if sector not in SECTORS:
+        raise HTTPException(status_code=404, detail="Sector not found")
+    if season not in SEASONS:
+        raise HTTPException(status_code=400, detail="Season must be A or B")
+
+    # Get prediction for this sector/season
+    prediction = MODEL.predict(sector, season, datetime.now().year)
+
+    # Fetch live forecast
+    forecast = None
+    key = api_key or config.OWM_API_KEY
+    if key:
+        forecast = get_forecast_summary(key, sector)
+
+    from datetime import date
+    decision = make_planting_decision(sector, season, prediction, forecast, date.today())
+    return decision
+
+
+@app.get("/api/decision")
+async def all_sector_decisions(
+    season:  str = Query("A"),
+    api_key: Optional[str] = Query(None),
+):
+    """
+    Real-time planting decisions for ALL sectors for a given season.
+    Returns a list sorted by urgency (PLANT_NOW first).
+    """
+    if season not in SEASONS:
+        raise HTTPException(status_code=400, detail="Season must be A or B")
+
+    key       = api_key or config.OWM_API_KEY
+    forecasts = {}
+    if key:
+        forecasts = get_all_sectors_forecast(key)
+
+    from datetime import date
+    results = make_all_sector_decisions(MODEL, season, forecasts, date.today())
+
+    # Sort by urgency
+    urgency_order = {
+        "PLANT_NOW": 0, "PLANT_SOON": 1, "USE_EARLY_VARIETY": 2,
+        "SEASON_ACTIVE": 3, "WAIT": 4, "SEASON_ENDING": 5, "OFF_SEASON": 6
+    }
+    results.sort(key=lambda r: urgency_order.get(r["decision"], 99))
+
+    return {
+        "season":      season,
+        "today":       date.today().isoformat(),
+        "decisions":   results,
+        "summary": {
+            "plant_now":        sum(1 for r in results if r["decision"]=="PLANT_NOW"),
+            "plant_soon":       sum(1 for r in results if r["decision"]=="PLANT_SOON"),
+            "wait":             sum(1 for r in results if r["decision"]=="WAIT"),
+            "use_early_variety":sum(1 for r in results if r["decision"]=="USE_EARLY_VARIETY"),
+            "season_active":    sum(1 for r in results if r["decision"]=="SEASON_ACTIVE"),
+            "season_ending":    sum(1 for r in results if r["decision"]=="SEASON_ENDING"),
+        }
     }
 
 @app.get("/health")

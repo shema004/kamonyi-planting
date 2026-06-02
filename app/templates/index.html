@@ -34,6 +34,23 @@
   <div class="flex justify-center py-4"><div class="spinner"></div></div>
 </div>
 
+<!-- Planting Decision Summary -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <h2 class="font-semibold text-gray-700">🌾 Planting Decisions — All Sectors Today</h2>
+      <p class="text-xs text-gray-400 mt-0.5">Real-time advice based on current rainfall vs historical onset thresholds</p>
+    </div>
+    <select id="sel-decision-season" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+      <option value="A">Season A</option>
+      <option value="B">Season B</option>
+    </select>
+  </div>
+  <div id="decision-summary">
+    <div class="flex justify-center py-6"><div class="spinner"></div></div>
+  </div>
+</div>
+
 <!-- Controls -->
 <div class="bg-white rounded-2xl shadow-md p-5 mb-6 flex flex-wrap gap-4 items-end">
   <div>
@@ -315,6 +332,7 @@ async function loadPredictions(){
 
 // ── Events ────────────────────────────────────────────────────────────────
 document.getElementById("btn-predict").addEventListener("click",loadPredictions);
+document.getElementById("sel-decision-season").addEventListener("change",loadDecisionSummary);
 document.getElementById("sel-season").addEventListener("change",loadPredictions);
 document.getElementById("sel-year").addEventListener("change",loadPredictions);
 document.getElementById("sel-forecast-sector").addEventListener("change",function(){
@@ -437,6 +455,68 @@ async function loadCurrentSeason(){
 }
 
 loadCurrentSeason();
+
+async function loadDecisionSummary(){
+  const season = document.getElementById("sel-decision-season").value;
+  const el = document.getElementById("decision-summary");
+  el.innerHTML = `<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
+  try {
+    const res  = await fetch(`/api/decision?season=${season}`);
+    if(!res.ok) throw new Error("Decision API unavailable");
+    const data = await res.json();
+    const decisions = data.decisions;
+    const summary   = data.summary;
+
+    const colorMap = {
+      "PLANT_NOW":         {bg:"#dcfce7", text:"#166534", emoji:"✅"},
+      "PLANT_SOON":        {bg:"#fef3c7", text:"#92400e", emoji:"🌱"},
+      "WAIT":              {bg:"#fef9c3", text:"#854d0e", emoji:"⏳"},
+      "USE_EARLY_VARIETY": {bg:"#ffedd5", text:"#9a3412", emoji:"⚠️"},
+      "SEASON_ACTIVE":     {bg:"#dbeafe", text:"#1e40af", emoji:"📅"},
+      "SEASON_ENDING":     {bg:"#fee2e2", text:"#991b1b", emoji:"🔚"},
+    };
+
+    // Summary badges
+    const summaryHTML = Object.entries(summary)
+      .filter(([k,v])=>v>0)
+      .map(([k,v])=>{
+        const cm = colorMap[k.toUpperCase().replace(/ /g,"_")] || {bg:"#f3f4f6",text:"#374151",emoji:"•"};
+        return `<span class="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full font-semibold mr-2 mb-2"
+          style="background:${cm.bg};color:${cm.text}">${cm.emoji} ${k.replace(/_/g,' ')}: ${v}</span>`;
+      }).join("");
+
+    // Decision cards grid
+    const cardsHTML = decisions.map(d=>{
+      const cm = colorMap[d.decision] || {bg:"#f3f4f6",text:"#374151",emoji:"•"};
+      return `
+      <a href="/sector/${d.sector}" class="block rounded-xl p-3 hover:shadow-md transition border"
+         style="background:${cm.bg};border-color:${cm.text}20">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-semibold text-sm" style="color:${cm.text}">${d.sector}</span>
+          <span class="text-lg">${d.emoji}</span>
+        </div>
+        <div class="text-xs font-bold mb-1" style="color:${cm.text}">${d.headline}</div>
+        <div class="text-xs text-gray-500">${d.action.slice(0,60)}${d.action.length>60?'...':''}</div>
+        <div class="text-xs text-gray-400 mt-1">
+          Rain: ${d.current_dekad_rain_mm}mm | ${d.weeks_left_in_season}wks left
+        </div>
+      </a>`;
+    }).join("");
+
+    el.innerHTML = `
+      <div class="mb-3">${summaryHTML}</div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">${cardsHTML}</div>
+      <p class="text-xs text-gray-400 mt-3">Click any sector for full details and conditions checklist.</p>`;
+
+  } catch(e) {
+    el.innerHTML = `<div class="text-sm text-gray-400 text-center py-4">
+      Decision data unavailable — ${e.message}
+    </div>`;
+  }
+}
+
+loadDecisionSummary();
+
 
 async function loadRecorderStatus(){
   try{

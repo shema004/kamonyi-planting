@@ -127,7 +127,7 @@
         <option value="onset">🗓 Predicted Onset Day</option>
         <option value="rainfall">🌧 Predicted Rainfall (mm)</option>
         <option value="length">📏 Season Length (weeks)</option>
-        <option value="tmax">🌡 Max Temperature (°C)</option>
+        <option value="temp">🌡 Temperature (max/min avg °C)</option>
       </select>
     </div>
     <div id="map" class="w-full h-80 rounded-xl overflow-hidden" style="z-index:0;position:relative;"></div>
@@ -254,6 +254,13 @@ const COLOR_SCALES = {
     bins: [25.0, 25.2, 25.5, 25.8, 26.2],
     colors: ["#1a9850","#91cf60","#fee08b","#fc8d59","#d73027"],
     labels: ["<25°C","25–25.2","25.2–25.5","25.5–25.8","≥25.8°C"]
+  },
+  temp: {
+    label: "Avg Temperature",
+    unit: "°C",
+    bins: [19.5, 20.0, 20.3, 20.6, 21.0],
+    colors: ["#1a9850","#91cf60","#fee08b","#fc8d59","#d73027"],
+    labels: ["<19.5°C","19.5–20","20–20.3","20.3–20.6","≥20.6°C"]
   }
 };
 
@@ -351,15 +358,23 @@ fetch("/static/kamonyi_sectors.geojson")
 
 // Layer selector change handler
 document.getElementById("map-layer").addEventListener("change", function() {
-  const metric = this.value;
+  applyMapLayer(this.value);
+});
+
+function applyMapLayer(metric) {
+  if(!sectorLayer) return;
   if(!metric) { updateMapLayer(null); return; }
-  if(Object.keys(mapLayerData).length === 0) return;
-  // Flatten to sector -> single value for this metric
+  // Build flat {sector: value} from stored prediction data
   const flat = {};
   Object.keys(mapLayerData).forEach(s => {
     const v = mapLayerData[s];
-    flat[s] = (typeof v === "object" && v !== null) ? v[metric] : v;
+    flat[s] = (v && typeof v === "object") ? v[metric] : v;
   });
+  const saved = mapLayerData;
+  mapLayerData = flat;
+  updateMapLayer(metric);
+  mapLayerData = saved;
+}
   const savedData = mapLayerData;
   mapLayerData = flat;
   updateMapLayer(metric);
@@ -369,19 +384,7 @@ let markers=[], onsetChart=null, rainChart=null, tmaxChart=null, tminChart=null;
 
 function colorForConf(c){return c==="HIGH"?"#16a34a":c==="MEDIUM"?"#ca8a04":"#dc2626";}
 
-function updateMap(preds){
-  markers.forEach(m=>map.removeLayer(m)); markers=[];
-  preds.forEach(p=>{
-    const coords=SECTOR_COORDS[p.sector]; if(!coords)return;
-    const circle=L.circleMarker(coords,{radius:11,color:"#fff",weight:2,fillColor:colorForConf(p.confidence),fillOpacity:0.85}).addTo(map);
-    circle.bindPopup(`<b>${p.sector}</b>${p.is_proxy?'<br><em style="color:#d97706;font-size:11px">⚠ Rainfall proxy estimate</em>':''}<br>Onset: <b>${p.predicted_onset_date}</b><br>
-      Plant: ${p.planting_window_start} → ${p.planting_window_end}<br>
-      Rainfall: ${p.expected_rainfall_mm??'N/A'} mm<br>
-      Temp: ${p.predicted_tmax}°C / ${p.predicted_tmin}°C<br>
-      ${p.temp_summary}<br>Confidence: <b>${p.confidence}</b>`);
-    markers.push(circle);
-  });
-}
+function updateMap(preds){} // dots removed - using choropleth
 
 function makeBarChart(id,labels,data,color,yLabel,existing){
   if(existing)existing.destroy();

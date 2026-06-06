@@ -30,6 +30,12 @@ app = FastAPI(
 BASE_DIR  = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+# ── Serve static files (GeoJSON sector boundaries, etc.) ──────────────────
+import os as _os
+_static_dir = str(BASE_DIR / "static")
+_os.makedirs(_static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 # ── Load data & model ──────────────────────────────────────────────────────
 print("[startup] Loading data and fitting model ...")
 _, _, _, MERGED_DF = load_all_data()

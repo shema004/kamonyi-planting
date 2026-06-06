@@ -196,32 +196,28 @@ const SECTOR_COORDS = {
   "Ngamba":[-2.08,29.83]
 };
 
-const map = L.map("map", {zoomControl:true}).setView([-2.12,29.82],11);
+const map = L.map("map", {zoomControl:true}).setView([-2.05,29.85],11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:15}).addTo(map);
 
-// Approximate sector boundary polygons (simplified polygons per sector)
-const SECTOR_BOUNDARIES = {
-  "Gacurabwenge": [[-2.02,29.82],[-2.02,29.88],[-2.08,29.88],[-2.08,29.82]],
-  "Karama":       [[-2.08,29.79],[-2.08,29.85],[-2.15,29.85],[-2.15,29.79]],
-  "Kayenzi":      [[-2.05,29.75],[-2.05,29.81],[-2.11,29.81],[-2.11,29.75]],
-  "Kayumbu":      [[-2.12,29.72],[-2.12,29.78],[-2.18,29.78],[-2.18,29.72]],
-  "Mugina":       [[-2.07,29.67],[-2.07,29.73],[-2.13,29.73],[-2.13,29.67]],
-  "Musambira":    [[-2.15,29.77],[-2.15,29.83],[-2.21,29.83],[-2.21,29.77]],
-  "Ngamba":       [[-2.05,29.80],[-2.05,29.86],[-2.11,29.86],[-2.11,29.80]],
-  "Nyamiyaga":    [[-2.17,29.82],[-2.17,29.88],[-2.23,29.88],[-2.23,29.82]],
-  "Nyarubaka":    [[-2.22,29.75],[-2.22,29.81],[-2.28,29.81],[-2.28,29.75]],
-  "Rugarika":     [[-1.99,29.87],[-1.99,29.93],[-2.05,29.93],[-2.05,29.87]],
-  "Rukoma":       [[-1.97,29.79],[-1.97,29.85],[-2.03,29.85],[-2.03,29.79]],
-  "Runda":        [[-2.19,29.89],[-2.19,29.95],[-2.25,29.95],[-2.25,29.89]],
-};
-
-// Draw sector boundaries
-Object.entries(SECTOR_BOUNDARIES).forEach(([sector, coords]) => {
-  L.polygon(coords, {
-    color: "#16a34a", weight: 1.5, opacity: 0.5,
-    fillColor: "#16a34a", fillOpacity: 0.05,
-  }).addTo(map).bindTooltip(sector, {permanent:false, direction:"center"});
-});
+// Sector boundaries loaded from GeoJSON file
+// Upload your shapefile converted to GeoJSON at: /static/kamonyi_sectors.geojson
+fetch("/static/kamonyi_sectors.geojson")
+  .then(r => r.ok ? r.json() : null)
+  .then(geojson => {
+    if(!geojson) return; // file not yet uploaded
+    L.geoJSON(geojson, {
+      style: {
+        color: "#16a34a", weight: 2, opacity: 0.6,
+        fillColor: "#16a34a", fillOpacity: 0.08,
+      },
+      onEachFeature: function(feature, layer) {
+        const name = feature.properties.name || feature.properties.NAME ||
+                     feature.properties.sector || feature.properties.SECTOR || "";
+        if(name) layer.bindTooltip(name, {permanent:false, direction:"center"});
+      }
+    }).addTo(map);
+  })
+  .catch(() => {}); // silently skip if no file
 let markers=[], onsetChart=null, rainChart=null, tmaxChart=null, tminChart=null;
 
 function colorForConf(c){return c==="HIGH"?"#16a34a":c==="MEDIUM"?"#ca8a04":"#dc2626";}
@@ -511,6 +507,7 @@ async function loadDecisionSummary(){
       "USE_EARLY_VARIETY": {bg:"#ffedd5", text:"#9a3412", emoji:"⚠️"},
       "SEASON_ACTIVE":     {bg:"#dbeafe", text:"#1e40af", emoji:"📅"},
       "SEASON_ENDING":     {bg:"#fee2e2", text:"#991b1b", emoji:"🔚"},
+      "PREPARE":           {bg:"#ede9fe", text:"#4c1d95", emoji:"📋"},
     };
 
     // Summary badges

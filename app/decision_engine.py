@@ -111,17 +111,31 @@ def max_pop_from_forecast(forecast_days: list) -> float:
 
 
 def days_remaining_in_season(season: str, today: date = None) -> int:
-    """How many days left in the current season."""
+    """How many days left in the current/upcoming season."""
     if today is None:
         today = date.today()
     doy = today.timetuple().tm_yday
 
     if season == "A":
-        # Season A ends around Feb 9 next year
-        end_date = date(today.year + 1, 2, 9) if doy >= 244 else date(today.year, 2, 9)
-        return max(0, (end_date - today).days)
-    else:
+        # Season A: Sep 1 – Feb 9
+        # If we are BEFORE Season A (Jan–Aug), count from Sep 1 this year to Feb 9 next year
+        if doy < 244:
+            # Season A hasn't started yet — return full season length
+            start_date = date(today.year, 9, 1)
+            end_date   = date(today.year + 1, 2, 9)
+            return (end_date - start_date).days
+        else:
+            # We are IN Season A (Sep–Dec)
+            end_date = date(today.year + 1, 2, 9)
+            return max(0, (end_date - today).days)
+    elif season == "B":
         end_doy = SEASON_END_DOY.get(season, 181)
+        if doy < 32:
+            # Before Season B — return full length
+            return 181 - 32
+        return max(0, end_doy - doy)
+    else:
+        end_doy = SEASON_END_DOY.get(season, 273)
         return max(0, end_doy - doy)
 
 
@@ -189,12 +203,51 @@ def make_planting_decision(
     hist_mean_rain  = predicted_onset.get("expected_rainfall_mm", 0) or 0
     hist_dekad_avg  = hist_mean_rain / (predicted_onset.get("predicted_length_dekads", 10) or 10)
 
-    # ── 4. Season ending check ────────────────────────────────────────────
-    season_ending   = days_left_in_season <= SEASON_ENDING_THRESHOLD
+    # ── 4. Determine if we are actually IN this season right now ─────────
+    # Season A: doy 244-365 or doy 1-40
+    # Season B: doy 32-181
+    if season == "A":
+        is_season_active = (doy >= 244) or (doy <= 40)
+    elif season == "B":
+        is_season_active = 32 <= doy <= 181
+    else:
+        is_season_active = 182 <= doy <= 273
+
+    # Days until season starts (if not yet active)
+    if season == "A" and not is_season_active:
+        days_until_season = max(0, 244 - doy)
+    elif season == "B" and not is_season_active:
+        days_until_season = max(0, 32 - doy) if doy < 32 else max(0, 32 + (365 - doy))
+    else:
+        days_until_season = 0
+
+    # ── 5. Season ending check ────────────────────────────────────────────
+    season_ending = is_season_active and (days_left_in_season <= SEASON_ENDING_THRESHOLD)
 
     # ── 5. Decision logic ─────────────────────────────────────────────────
 
-    if season_ending:
+    if not is_season_active:
+        # Season hasn't started yet — show preparation advice
+        decision     = "PREPARE"
+        emoji        = "📋"
+        color        = "blue"
+        headline     = f"Season {season} Not Started Yet"
+
+        weeks_until  = round(days_until_season / 7, 1)
+        onset_date   = predicted_onset.get("predicted_onset_date", "?")
+
+        advice       = (
+            f"Season {season} has not started yet. "
+            f"It begins in approximately {days_until_season} days ({weeks_until} weeks). "
+            f"Predicted onset for {sector}: {onset_date}. "
+            f"Use this time to prepare land, procure seeds, and arrange inputs."
+        )
+        action       = (
+            f"Prepare now: plough fields, source certified seeds, arrange fertiliser. "
+            f"Monitor rainfall closely from day {window_start} onwards."
+        )
+
+    elif season_ending:
         decision     = "SEASON_ENDING"
         emoji        = "🔚"
         color        = "red"
@@ -372,6 +425,11 @@ def make_planting_decision(
 
     # ── 7. Build conditions checklist ─────────────────────────────────────
     conditions = [
+        {
+            "label":  "Season active / started",
+            "met":    is_season_active,
+            "value":  f"{'Yes' if is_season_active else f'Starts in ~{days_until_season} days'}",
+        },
         {
             "label":  "In onset window",
             "met":    in_window or (past_window and not past_cutoff and current_rain_ok),

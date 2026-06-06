@@ -356,7 +356,8 @@ async def all_sector_decisions(
     # Sort by urgency
     urgency_order = {
         "PLANT_NOW": 0, "PLANT_SOON": 1, "USE_EARLY_VARIETY": 2,
-        "SEASON_ACTIVE": 3, "WAIT": 4, "SEASON_ENDING": 5, "OFF_SEASON": 6
+        "SEASON_ACTIVE": 3, "WAIT": 4, "PREPARE": 5,
+        "SEASON_ENDING": 6, "OFF_SEASON": 7
     }
     results.sort(key=lambda r: urgency_order.get(r["decision"], 99))
 
@@ -371,6 +372,7 @@ async def all_sector_decisions(
             "use_early_variety":sum(1 for r in results if r["decision"]=="USE_EARLY_VARIETY"),
             "season_active":    sum(1 for r in results if r["decision"]=="SEASON_ACTIVE"),
             "season_ending":    sum(1 for r in results if r["decision"]=="SEASON_ENDING"),
+            "prepare":          sum(1 for r in results if r["decision"]=="PREPARE"),
         }
     }
 

@@ -120,8 +120,20 @@
 <!-- Map + Chart -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
   <div class="bg-white rounded-2xl shadow-md p-4">
-    <h2 class="font-semibold text-gray-700 mb-3">📍 Sector Map – Predicted Onset</h2>
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-gray-700">📍 Sector Map</h2>
+      <select id="map-layer" class="border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-600">
+        <option value="">— No fill (boundaries only) —</option>
+        <option value="onset">🗓 Predicted Onset Day</option>
+        <option value="rainfall">🌧 Predicted Rainfall (mm)</option>
+        <option value="length">📏 Season Length (weeks)</option>
+        <option value="tmax">🌡 Max Temperature (°C)</option>
+      </select>
+    </div>
     <div id="map" class="w-full h-80 rounded-xl overflow-hidden" style="z-index:0;position:relative;"></div>
+    <div id="map-legend" class="mt-2 hidden">
+      <div class="flex items-center gap-1 text-xs text-gray-500 flex-wrap" id="legend-items"></div>
+    </div>
   </div>
   <div class="bg-white rounded-2xl shadow-md p-4">
     <h2 class="font-semibold text-gray-700 mb-3">📊 Onset Day Comparison</h2>
@@ -189,11 +201,18 @@
 })();
 
 const SECTOR_COORDS = {
-  "Gacurabwenge":[-2.05,29.85],"Karama":[-2.12,29.82],"Kayenzi":[-2.08,29.78],
-  "Kayumbu":[-2.15,29.75],"Mugina":[-2.10,29.70],"Musambira":[-2.18,29.80],
-  "Nyamiyaga":[-2.20,29.85],"Nyarubaka":[-2.25,29.78],"Rugarika":[-2.02,29.90],
-  "Rukoma":[-2.00,29.82],"Runda":[-2.22,29.92],
-  "Ngamba":[-2.08,29.83]
+  "Gacurabwenge": [-1.935, 29.965],
+  "Rugarika":     [-1.920, 29.935],
+  "Rukoma":       [-1.955, 29.905],
+  "Musambira":    [-2.010, 29.870],
+  "Ngamba":       [-1.990, 29.930],
+  "Nyamiyaga":    [-1.985, 29.985],
+  "Mugina":       [-2.055, 29.815],
+  "Nyarubaka":    [-2.040, 29.880],
+  "Karama":       [-2.085, 29.870],
+  "Kayenzi":      [-2.080, 29.825],
+  "Kayumbu":      [-2.095, 29.770],
+  "Runda":        [-2.125, 29.960],
 };
 
 const map = L.map("map", {zoomControl:true}).setView([-2.00, 29.93], 10);
@@ -201,46 +220,151 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
   attribution:"© OpenStreetMap", maxZoom:15, opacity:0.6
 }).addTo(map);
 
-// Load real sector boundaries from GeoJSON (converted from shapefile)
-let sectorLayer = null;
-let predictionData = {};
+// ── Choropleth map system ─────────────────────────────────────────────────
+let sectorLayer   = null;
+let geojsonData   = null;
+let mapLayerData  = {};   // { sectorName: value } for current layer
 
+// Color scales for each metric
+const COLOR_SCALES = {
+  onset: {
+    label: "Onset Day",
+    unit: "day of year",
+    bins: [244, 247, 250, 253, 256],
+    colors: ["#1a9850","#91cf60","#fee08b","#fc8d59","#d73027"],
+    labels: ["Early (≤244)","245–247","248–250","251–253","Late (≥254)"]
+  },
+  rainfall: {
+    label: "Rainfall",
+    unit: "mm",
+    bins: [650, 665, 675, 685, 695],
+    colors: ["#d73027","#fc8d59","#fee08b","#91cf60","#1a9850"],
+    labels: ["<650mm","650–665","666–675","676–685","≥685mm"]
+  },
+  length: {
+    label: "Season Length",
+    unit: "weeks",
+    bins: [24, 25, 25.5, 26, 26.5],
+    colors: ["#d73027","#fc8d59","#fee08b","#91cf60","#1a9850"],
+    labels: ["<24wks","24–25","25–25.5","25.5–26","≥26wks"]
+  },
+  tmax: {
+    label: "Max Temp",
+    unit: "°C",
+    bins: [25.0, 25.2, 25.5, 25.8, 26.2],
+    colors: ["#1a9850","#91cf60","#fee08b","#fc8d59","#d73027"],
+    labels: ["<25°C","25–25.2","25.2–25.5","25.5–25.8","≥25.8°C"]
+  }
+};
+
+function getColor(value, metric) {
+  const scale = COLOR_SCALES[metric];
+  if(!scale || value == null) return "#cccccc";
+  const bins = scale.bins;
+  const colors = scale.colors;
+  for(let i = 0; i < bins.length; i++) {
+    if(value <= bins[i]) return colors[i];
+  }
+  return colors[colors.length - 1];
+}
+
+function updateMapLayer(metric) {
+  if(!sectorLayer) return;
+  const hasMetric = metric && COLOR_SCALES[metric];
+
+  sectorLayer.eachLayer(function(layer) {
+    const name  = layer.feature.properties.sector || layer.feature.properties.name || "";
+    const value = mapLayerData[name];
+    if(hasMetric && value != null) {
+      layer.setStyle({
+        fillColor:   getColor(value, metric),
+        fillOpacity: 0.75,
+        color:       "#333",
+        weight:      1.5,
+        opacity:     0.9,
+      });
+      layer.bindTooltip(
+        `<b>${name}</b><br>${COLOR_SCALES[metric].label}: <b>${value} ${COLOR_SCALES[metric].unit}</b>`,
+        {permanent:false, direction:"center"}
+      );
+    } else {
+      layer.setStyle({
+        fillColor:   "#ffffff",
+        fillOpacity: 0.0,
+        color:       "#1a1a2e",
+        weight:      2,
+        opacity:     0.8,
+      });
+      layer.bindTooltip(name, {permanent:true, direction:"center", className:"sector-label"});
+    }
+  });
+
+  // Update legend
+  const legendEl = document.getElementById("map-legend");
+  const itemsEl  = document.getElementById("legend-items");
+  if(hasMetric) {
+    const scale = COLOR_SCALES[metric];
+    legendEl.classList.remove("hidden");
+    itemsEl.innerHTML = scale.labels.map((lbl,i)=>
+      `<span class="flex items-center gap-1 mr-2">
+        <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${scale.colors[i]}"></span>
+        <span>${lbl}</span>
+      </span>`
+    ).join("");
+  } else {
+    legendEl.classList.add("hidden");
+  }
+}
+
+// Load GeoJSON
 fetch("/static/kamonyi_sectors.geojson")
   .then(r => r.ok ? r.json() : null)
   .then(geojson => {
     if(!geojson) return;
+    geojsonData = geojson;
     sectorLayer = L.geoJSON(geojson, {
-      style: function(feature) {
-        return {
-          color: "#1a1a2e",
-          weight: 1.5,
-          opacity: 0.8,
-          fillColor: "#16a34a",
-          fillOpacity: 0.25,
-        };
+      style: {
+        color: "#1a1a2e", weight: 2, opacity: 0.8,
+        fillColor: "#ffffff", fillOpacity: 0.0,
       },
       onEachFeature: function(feature, layer) {
         const name = feature.properties.sector || feature.properties.name || "";
-        layer.bindTooltip(name, {
-          permanent: true,
-          direction: "center",
-          className: "sector-label"
-        });
+        layer.bindTooltip(name, {permanent:true, direction:"center", className:"sector-label"});
         layer.on("click", function() {
           if(name) window.location.href = "/sector/" + name;
         });
-        layer.on("mouseover", function() {
-          layer.setStyle({fillOpacity: 0.5, weight: 2.5});
+        layer.on("mouseover", function(e) {
+          if(!document.getElementById("map-layer").value) {
+            layer.setStyle({fillColor:"#16a34a", fillOpacity:0.2});
+          }
         });
         layer.on("mouseout", function() {
-          layer.setStyle({fillOpacity: 0.25, weight: 1.5});
+          if(!document.getElementById("map-layer").value) {
+            layer.setStyle({fillOpacity:0.0});
+          }
         });
       }
     }).addTo(map);
-    // Fit map to district boundaries
-    map.fitBounds(sectorLayer.getBounds(), {padding: [20,20]});
+    map.fitBounds(sectorLayer.getBounds(), {padding:[20,20]});
   })
   .catch(() => {});
+
+// Layer selector change handler
+document.getElementById("map-layer").addEventListener("change", function() {
+  const metric = this.value;
+  if(!metric) { updateMapLayer(null); return; }
+  if(Object.keys(mapLayerData).length === 0) return;
+  // Flatten to sector -> single value for this metric
+  const flat = {};
+  Object.keys(mapLayerData).forEach(s => {
+    const v = mapLayerData[s];
+    flat[s] = (typeof v === "object" && v !== null) ? v[metric] : v;
+  });
+  const savedData = mapLayerData;
+  mapLayerData = flat;
+  updateMapLayer(metric);
+  mapLayerData = savedData;
+});
 let markers=[], onsetChart=null, rainChart=null, tmaxChart=null, tminChart=null;
 
 function colorForConf(c){return c==="HIGH"?"#16a34a":c==="MEDIUM"?"#ca8a04":"#dc2626";}

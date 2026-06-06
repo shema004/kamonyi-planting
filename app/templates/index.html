@@ -34,22 +34,6 @@
   <div class="flex justify-center py-4"><div class="spinner"></div></div>
 </div>
 
-<!-- Planting Decision Summary -->
-<div class="bg-white rounded-2xl shadow-md p-5 mb-6">
-  <div class="flex items-center justify-between mb-4">
-    <div>
-      <h2 class="font-semibold text-gray-700">🌾 Planting Decisions — All Sectors Today</h2>
-      <p class="text-xs text-gray-400 mt-0.5">Real-time advice based on current rainfall vs historical onset thresholds
-        — <span id="decision-season-label" class="font-medium text-green-700"></span>
-      </p>
-    </div>
-    <span class="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">Synced with Season selector above ↑</span>
-  </div>
-  <div id="decision-summary">
-    <div class="flex justify-center py-6"><div class="spinner"></div></div>
-  </div>
-</div>
-
 <!-- Controls -->
 <div class="bg-white rounded-2xl shadow-md p-5 mb-6 flex flex-wrap gap-4 items-end">
   <div>
@@ -183,6 +167,24 @@
   <p class="text-xs text-gray-400 mb-4">Historical mean total rainfall (mm) per season</p>
   <canvas id="rain-chart" height="120"></canvas>
 </div>
+
+<!-- Planting Decision Summary -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <h2 class="font-semibold text-gray-700">🌾 Planting Decisions — All Sectors Today</h2>
+      <p class="text-xs text-gray-400 mt-0.5">Real-time advice based on current rainfall vs historical onset thresholds
+        — <span id="decision-season-label" class="font-medium text-green-700"></span>
+      </p>
+    </div>
+    <span class="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">Synced with Season selector above ↑</span>
+  </div>
+  <div id="decision-summary">
+    <div class="flex justify-center py-6"><div class="spinner"></div></div>
+  </div>
+</div>
+
+
 
 {% endblock %}
 {% block scripts %}
@@ -375,11 +377,7 @@ function applyMapLayer(metric) {
   updateMapLayer(metric);
   mapLayerData = saved;
 }
-  const savedData = mapLayerData;
-  mapLayerData = flat;
-  updateMapLayer(metric);
-  mapLayerData = savedData;
-});
+
 let markers=[], onsetChart=null, rainChart=null, tmaxChart=null, tminChart=null;
 
 function colorForConf(c){return c==="HIGH"?"#16a34a":c==="MEDIUM"?"#ca8a04":"#dc2626";}

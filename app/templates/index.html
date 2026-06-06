@@ -196,28 +196,51 @@ const SECTOR_COORDS = {
   "Ngamba":[-2.08,29.83]
 };
 
-const map = L.map("map", {zoomControl:true}).setView([-2.05,29.85],11);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:15}).addTo(map);
+const map = L.map("map", {zoomControl:true}).setView([-2.00, 29.93], 10);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  attribution:"© OpenStreetMap", maxZoom:15, opacity:0.6
+}).addTo(map);
 
-// Sector boundaries loaded from GeoJSON file
-// Upload your shapefile converted to GeoJSON at: /static/kamonyi_sectors.geojson
+// Load real sector boundaries from GeoJSON (converted from shapefile)
+let sectorLayer = null;
+let predictionData = {};
+
 fetch("/static/kamonyi_sectors.geojson")
   .then(r => r.ok ? r.json() : null)
   .then(geojson => {
-    if(!geojson) return; // file not yet uploaded
-    L.geoJSON(geojson, {
-      style: {
-        color: "#16a34a", weight: 2, opacity: 0.6,
-        fillColor: "#16a34a", fillOpacity: 0.08,
+    if(!geojson) return;
+    sectorLayer = L.geoJSON(geojson, {
+      style: function(feature) {
+        return {
+          color: "#1a1a2e",
+          weight: 1.5,
+          opacity: 0.8,
+          fillColor: "#16a34a",
+          fillOpacity: 0.25,
+        };
       },
       onEachFeature: function(feature, layer) {
-        const name = feature.properties.name || feature.properties.NAME ||
-                     feature.properties.sector || feature.properties.SECTOR || "";
-        if(name) layer.bindTooltip(name, {permanent:false, direction:"center"});
+        const name = feature.properties.sector || feature.properties.name || "";
+        layer.bindTooltip(name, {
+          permanent: true,
+          direction: "center",
+          className: "sector-label"
+        });
+        layer.on("click", function() {
+          if(name) window.location.href = "/sector/" + name;
+        });
+        layer.on("mouseover", function() {
+          layer.setStyle({fillOpacity: 0.5, weight: 2.5});
+        });
+        layer.on("mouseout", function() {
+          layer.setStyle({fillOpacity: 0.25, weight: 1.5});
+        });
       }
     }).addTo(map);
+    // Fit map to district boundaries
+    map.fitBounds(sectorLayer.getBounds(), {padding: [20,20]});
   })
-  .catch(() => {}); // silently skip if no file
+  .catch(() => {});
 let markers=[], onsetChart=null, rainChart=null, tmaxChart=null, tminChart=null;
 
 function colorForConf(c){return c==="HIGH"?"#16a34a":c==="MEDIUM"?"#ca8a04":"#dc2626";}

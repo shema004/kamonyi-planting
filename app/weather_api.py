@@ -47,15 +47,20 @@ def get_current_weather(api_key: str, sector: str = None) -> Optional[dict]:
     if not data:
         return None
     return {
-        "sector":       sector or "Kamonyi_District",
-        "dt":           datetime.fromtimestamp(data["dt"], tz=timezone.utc).isoformat(),
-        "temp_c":       data["main"]["temp"],
-        "temp_min_c":   data["main"]["temp_min"],
-        "temp_max_c":   data["main"]["temp_max"],
-        "humidity_pct": data["main"]["humidity"],
-        "rain_1h_mm":   data.get("rain", {}).get("1h", 0.0),
-        "description":  data["weather"][0]["description"],
-        "icon":         data["weather"][0]["icon"],
+        "sector":          sector or "Kamonyi_District",
+        "dt":              datetime.fromtimestamp(data["dt"], tz=timezone.utc).isoformat(),
+        "temp_c":          data["main"]["temp"],
+        "temp_min_c":      data["main"]["temp_min"],
+        "temp_max_c":      data["main"]["temp_max"],
+        "humidity_pct":    data["main"]["humidity"],
+        "rain_1h_mm":      data.get("rain", {}).get("1h", 0.0),
+        "wind_speed_ms":   data.get("wind", {}).get("speed", 0.0),
+        "cloud_cover_pct": data.get("clouds", {}).get("all", 0),
+        "pressure_hpa":    data["main"].get("pressure", 0),
+        "description":     data["weather"][0]["description"],
+        "icon":            data["weather"][0]["icon"],
+        "lat":             lat,
+        "lon":             lon,
     }
 
 

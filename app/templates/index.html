@@ -39,12 +39,11 @@
   <div class="flex items-center justify-between mb-4">
     <div>
       <h2 class="font-semibold text-gray-700">🌾 Planting Decisions — All Sectors Today</h2>
-      <p class="text-xs text-gray-400 mt-0.5">Real-time advice based on current rainfall vs historical onset thresholds</p>
+      <p class="text-xs text-gray-400 mt-0.5">Real-time advice based on current rainfall vs historical onset thresholds
+        — <span id="decision-season-label" class="font-medium text-green-700"></span>
+      </p>
     </div>
-    <select id="sel-decision-season" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
-      <option value="A">Season A</option>
-      <option value="B">Season B</option>
-    </select>
+    <span class="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">Synced with Season selector above ↑</span>
   </div>
   <div id="decision-summary">
     <div class="flex justify-center py-6"><div class="spinner"></div></div>
@@ -122,7 +121,7 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
   <div class="bg-white rounded-2xl shadow-md p-4">
     <h2 class="font-semibold text-gray-700 mb-3">📍 Sector Map – Predicted Onset</h2>
-    <div id="map" class="w-full h-80 rounded-xl overflow-hidden"></div>
+    <div id="map" class="w-full h-80 rounded-xl overflow-hidden" style="z-index:0;position:relative;"></div>
   </div>
   <div class="bg-white rounded-2xl shadow-md p-4">
     <h2 class="font-semibold text-gray-700 mb-3">📊 Onset Day Comparison</h2>
@@ -193,11 +192,36 @@ const SECTOR_COORDS = {
   "Gacurabwenge":[-2.05,29.85],"Karama":[-2.12,29.82],"Kayenzi":[-2.08,29.78],
   "Kayumbu":[-2.15,29.75],"Mugina":[-2.10,29.70],"Musambira":[-2.18,29.80],
   "Nyamiyaga":[-2.20,29.85],"Nyarubaka":[-2.25,29.78],"Rugarika":[-2.02,29.90],
-  "Rukoma":[-2.00,29.82],"Runda":[-2.22,29.92]
+  "Rukoma":[-2.00,29.82],"Runda":[-2.22,29.92],
+  "Ngamba":[-2.08,29.83]
 };
 
-const map = L.map("map").setView([-2.12,29.82],11);
+const map = L.map("map", {zoomControl:true}).setView([-2.12,29.82],11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:15}).addTo(map);
+
+// Approximate sector boundary polygons (simplified polygons per sector)
+const SECTOR_BOUNDARIES = {
+  "Gacurabwenge": [[-2.02,29.82],[-2.02,29.88],[-2.08,29.88],[-2.08,29.82]],
+  "Karama":       [[-2.08,29.79],[-2.08,29.85],[-2.15,29.85],[-2.15,29.79]],
+  "Kayenzi":      [[-2.05,29.75],[-2.05,29.81],[-2.11,29.81],[-2.11,29.75]],
+  "Kayumbu":      [[-2.12,29.72],[-2.12,29.78],[-2.18,29.78],[-2.18,29.72]],
+  "Mugina":       [[-2.07,29.67],[-2.07,29.73],[-2.13,29.73],[-2.13,29.67]],
+  "Musambira":    [[-2.15,29.77],[-2.15,29.83],[-2.21,29.83],[-2.21,29.77]],
+  "Ngamba":       [[-2.05,29.80],[-2.05,29.86],[-2.11,29.86],[-2.11,29.80]],
+  "Nyamiyaga":    [[-2.17,29.82],[-2.17,29.88],[-2.23,29.88],[-2.23,29.82]],
+  "Nyarubaka":    [[-2.22,29.75],[-2.22,29.81],[-2.28,29.81],[-2.28,29.75]],
+  "Rugarika":     [[-1.99,29.87],[-1.99,29.93],[-2.05,29.93],[-2.05,29.87]],
+  "Rukoma":       [[-1.97,29.79],[-1.97,29.85],[-2.03,29.85],[-2.03,29.79]],
+  "Runda":        [[-2.19,29.89],[-2.19,29.95],[-2.25,29.95],[-2.25,29.89]],
+};
+
+// Draw sector boundaries
+Object.entries(SECTOR_BOUNDARIES).forEach(([sector, coords]) => {
+  L.polygon(coords, {
+    color: "#16a34a", weight: 1.5, opacity: 0.5,
+    fillColor: "#16a34a", fillOpacity: 0.05,
+  }).addTo(map).bindTooltip(sector, {permanent:false, direction:"center"});
+});
 let markers=[], onsetChart=null, rainChart=null, tmaxChart=null, tminChart=null;
 
 function colorForConf(c){return c==="HIGH"?"#16a34a":c==="MEDIUM"?"#ca8a04":"#dc2626";}
@@ -345,8 +369,8 @@ async function loadPredictions(){
 
 // ── Events ────────────────────────────────────────────────────────────────
 document.getElementById("btn-predict").addEventListener("click",loadPredictions);
-document.getElementById("sel-decision-season").addEventListener("change",loadDecisionSummary);
-document.getElementById("sel-season").addEventListener("change",loadPredictions);
+// Decision synced with main season selector - no separate listener needed
+document.getElementById("sel-season").addEventListener("change",function(){loadPredictions();loadDecisionSummary();});
 document.getElementById("sel-year").addEventListener("change",loadPredictions);
 document.getElementById("sel-forecast-sector").addEventListener("change",function(){
   loadForecast(this.value);
@@ -470,7 +494,7 @@ async function loadCurrentSeason(){
 loadCurrentSeason();
 
 async function loadDecisionSummary(){
-  const season = document.getElementById("sel-decision-season").value;
+  const season = document.getElementById("sel-season").value;
   const el = document.getElementById("decision-summary");
   el.innerHTML = `<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
   try {
@@ -516,6 +540,15 @@ async function loadDecisionSummary(){
       </a>`;
     }).join("");
 
+    // Update the season label
+    const yr2 = new Date().getFullYear(), mo2 = new Date().getMonth()+1;
+    const bYr2 = mo2 > 6 ? yr2+1 : yr2;
+    const seasonLabel = season==="A"
+      ? `Season A – Urugaryi/Umuhindo (Sep ${yr2} – Feb ${yr2+1})`
+      : `Season B – Itumba (Mar ${bYr2} – Jun ${bYr2})`;
+    const labelEl = document.getElementById("decision-season-label");
+    if(labelEl) labelEl.textContent = seasonLabel;
+
     el.innerHTML = `
       <div class="mb-3">${summaryHTML}</div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">${cardsHTML}</div>
@@ -530,6 +563,65 @@ async function loadDecisionSummary(){
 
 loadDecisionSummary();
 
+
+
+async function loadSeasonRecommendation(season, progress) {
+  const el = document.getElementById("season-recommendation");
+  if(!el) return;
+
+  try {
+    // Fetch decisions for current season to build recommendation
+    const res  = await fetch(`/api/decision?season=${season}`);
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    const decisions = data.decisions || [];
+    const summary   = data.summary   || {};
+
+    const pct     = progress.progress_pct;
+    const wksLeft = progress.remaining_weeks;
+    const wksGone = progress.elapsed_weeks;
+
+    // Build contextual recommendation based on season progress
+    let recs = [];
+
+    if(pct < 20) {
+      recs.push("🌱 Season just started — this is the optimal planting window. Plant main-season crops now.");
+    } else if(pct < 50) {
+      recs.push("🌿 Season is progressing well. Standard varieties can still be planted in early sectors.");
+    } else if(pct < 75) {
+      recs.push("⏳ Season is past midpoint. Switch to fast-maturing varieties for any new planting.");
+    } else if(pct < 90) {
+      recs.push("⚠️ Season nearing end (" + wksLeft + " weeks left). Only very fast varieties (≤60 days) advisable.");
+    } else {
+      recs.push("🔚 Season almost over. Focus on harvesting. Do not start new planting.");
+    }
+
+    // Add decision-based advice
+    const plantNow = summary.plant_now || 0;
+    const plantSoon = summary.plant_soon || 0;
+    const useEarly = summary.use_early_variety || 0;
+    const ending = summary.season_ending || 0;
+
+    if(plantNow > 0)   recs.push(`✅ ${plantNow} sector${plantNow>1?"s":""} have confirmed onset — plant immediately.`);
+    if(plantSoon > 0)  recs.push(`🌱 ${plantSoon} sector${plantSoon>1?"s":""} showing early rains — watch closely, plant in 2–3 days.`);
+    if(useEarly > 0)   recs.push(`⚠️ ${useEarly} sector${useEarly>1?"s":""} — onset delayed, use fast-maturing varieties only.`);
+    if(ending > 0)     recs.push(`🔚 ${ending} sector${ending>1?"s":""} — season ending, prepare for harvest.`);
+
+    // Rainfall advice
+    recs.push(`💧 Monitor daily rainfall. Season requires consistent rain above 20mm per dekad for stable crop growth.`);
+
+    // Next steps
+    if(wksLeft > 8) {
+      recs.push(`📅 ${wksLeft} weeks remaining — good time for soil preparation and seed procurement for remaining planting.`);
+    } else if(wksLeft > 3) {
+      recs.push(`📅 Only ${wksLeft} weeks left — prioritise fast-maturing crops and begin harvest planning.`);
+    }
+
+    el.innerHTML = recs.map(r => `<div class="mb-1.5">${r}</div>`).join("");
+  } catch(e) {
+    if(el) el.innerHTML = "<span class='text-white/60'>Recommendation unavailable</span>";
+  }
+}
 
 async function loadRecorderStatus(){
   try{

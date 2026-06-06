@@ -41,15 +41,22 @@ def init_db():
     c    = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS daily_weather (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            date          TEXT NOT NULL,
-            sector        TEXT NOT NULL,
-            temp_max      REAL,
-            temp_min      REAL,
-            rainfall_mm   REAL,
-            humidity      REAL,
-            description   TEXT,
-            recorded_at   TEXT NOT NULL,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            date            TEXT NOT NULL,
+            sector          TEXT NOT NULL,
+            temp_max        REAL,
+            temp_min        REAL,
+            temp_current    REAL,
+            rainfall_mm     REAL,
+            humidity        REAL,
+            wind_speed      REAL,
+            cloud_cover     REAL,
+            pressure        REAL,
+            description     TEXT,
+            icon            TEXT,
+            lat             REAL,
+            lon             REAL,
+            recorded_at     TEXT NOT NULL,
             UNIQUE(date, sector)
         )
     """)
@@ -147,16 +154,25 @@ def record_today(api_key: str) -> dict:
 
             c.execute("""
                 INSERT OR REPLACE INTO daily_weather
-                    (date, sector, temp_max, temp_min, rainfall_mm, humidity, description, recorded_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (date, sector, temp_max, temp_min, temp_current,
+                     rainfall_mm, humidity, wind_speed, cloud_cover,
+                     pressure, description, icon, lat, lon, recorded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 today,
                 sector,
                 w.get("temp_max_c"),
                 w.get("temp_min_c"),
+                w.get("temp_c"),
                 w.get("rain_1h_mm", 0.0),
                 w.get("humidity_pct"),
+                w.get("wind_speed_ms"),
+                w.get("cloud_cover_pct"),
+                w.get("pressure_hpa"),
                 w.get("description", ""),
+                w.get("icon", ""),
+                w.get("lat"),
+                w.get("lon"),
                 recorded_at,
             ))
             saved.append(sector)

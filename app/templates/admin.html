@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}Admin – Kamonyi Planting System{% endblock %}
+{% block content %}
+
+<div class="max-w-5xl mx-auto">
+
+<!-- Header -->
+<div class="bg-gradient-to-r from-gray-800 to-gray-600 rounded-2xl text-white px-8 py-8 mb-8 shadow-lg">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold mb-1">🔧 System Administration</h1>
+      <p class="text-gray-300 text-sm">Monitor predictions, database, recorder and system health</p>
+    </div>
+    <a href="/admin/logout"
+       class="bg-white/20 hover:bg-white/30 text-white text-sm px-4 py-2 rounded-lg transition">
+      Logout
+    </a>
+  </div>
+</div>
+
+<!-- Health Cards -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8" id="health-cards">
+  <div class="bg-white rounded-2xl shadow p-4 text-center">
+    <div class="text-2xl mb-1">⏳</div>
+    <div class="text-xs text-gray-400">Loading...</div>
+  </div>
+</div>
+
+<!-- Two columns: DB Summary + Recording Log -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+  <!-- Database summary -->
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-4">💾 Database Summary</h3>
+    <div id="db-summary" class="space-y-3 text-sm">
+      <div class="flex justify-center py-4"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- Recording log -->
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-4">📋 Recent Recording Log</h3>
+    <div id="recording-log" class="space-y-2 text-sm">
+      <div class="flex justify-center py-4"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Predictions vs Actuals -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-8">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="font-semibold text-gray-700">📊 Predictions vs Actuals</h3>
+    <div class="flex gap-2">
+      <select id="pa-season" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+        <option value="">All seasons</option>
+        <option value="A">Season A</option>
+        <option value="B">Season B</option>
+      </select>
+      <select id="pa-sector" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+        <option value="">All sectors</option>
+        {% for s in sectors %}
+        <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+      </select>
+      <button onclick="loadPvA()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg">Load</button>
+    </div>
+  </div>
+  <div id="pva-table" class="overflow-x-auto">
+    <div class="flex justify-center py-6"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Daily Weather Records -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-8">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="font-semibold text-gray-700">🌡 Daily Weather Records</h3>
+    <select id="dw-sector" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm" onchange="loadDailyWeather()">
+      <option value="">All sectors</option>
+      {% for s in sectors %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div id="dw-table" class="overflow-x-auto">
+    <div class="flex justify-center py-6"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Manual Actions -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-8">
+  <h3 class="font-semibold text-gray-700 mb-4">⚙️ Manual Actions</h3>
+  <div class="flex flex-wrap gap-3">
+    <button onclick="triggerRecord()"
+      class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg transition">
+      📡 Record Today's Weather Now
+    </button>
+    <a href="/health" target="_blank"
+      class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition">
+      🏥 Health Check
+    </a>
+    <a href="/api/season/current" target="_blank"
+      class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition">
+      📅 Current Season API
+    </a>
+    <a href="/docs" target="_blank"
+      class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition">
+      📖 API Docs
+    </a>
+  </div>
+  <div id="action-result" class="mt-3 text-sm text-gray-600"></div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Health cards
+async function loadHealth(){
+  try {
+    const res  = await fetch("/health");
+    const data = await res.json();
+    document.getElementById("health-cards").innerHTML = `
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-green-500">
+        <div class="text-2xl font-bold text-green-600">${data.status === "ok" ? "✅" : "❌"}</div>
+        <div class="text-xs text-gray-500 mt-1">System Status</div>
+        <div class="font-semibold text-sm">${data.status.toUpperCase()}</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-blue-500">
+        <div class="text-2xl font-bold text-blue-600">${data.sectors}</div>
+        <div class="text-xs text-gray-500 mt-1">Sectors</div>
+        <div class="font-semibold text-sm">Active</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-purple-500">
+        <div class="text-2xl font-bold text-purple-600">${data.db_daily_records || 0}</div>
+        <div class="text-xs text-gray-500 mt-1">Daily Records</div>
+        <div class="font-semibold text-sm">${data.db_days || 0} days</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-orange-500">
+        <div class="text-2xl font-bold text-orange-600">${data.db_predictions || 0}</div>
+        <div class="text-xs text-gray-500 mt-1">Saved Predictions</div>
+        <div class="font-semibold text-sm">${data.db_actuals || 0} actuals</div>
+      </div>`;
+  } catch(e) {
+    document.getElementById("health-cards").innerHTML = `<div class="col-span-4 text-red-500 text-sm">Health check failed</div>`;
+  }
+}
+
+// DB summary
+async function loadDbSummary(){
+  try {
+    const res  = await fetch("/api/recorder/summary");
+    const data = await res.json();
+    document.getElementById("db-summary").innerHTML = `
+      ${row("Total daily records", data.total_records)}
+      ${row("Date from", data.date_from || "—")}
+      ${row("Date to",   data.date_to   || "—")}
+      ${row("Unique days recorded", data.unique_days)}`;
+  } catch(e) {}
+}
+
+function row(label, value) {
+  return `<div class="flex justify-between border-b py-2">
+    <span class="text-gray-500">${label}</span>
+    <span class="font-semibold">${value}</span>
+  </div>`;
+}
+
+// Recording log
+async function loadLog(){
+  try {
+    const res  = await fetch("/api/recorder/log?limit=10");
+    const data = await res.json();
+    const rows = (data.log || []).map(l => `
+      <div class="flex items-center gap-2 border-b py-2 text-xs">
+        <span class="${l.status==='ok'?'text-green-500':'text-red-500'} font-bold">${l.status==='ok'?'✅':'❌'}</span>
+        <span class="font-medium">${l.date}</span>
+        <span class="text-gray-400 flex-1">${l.message}</span>
+      </div>`).join("");
+    document.getElementById("recording-log").innerHTML = rows || "<div class='text-gray-400'>No recordings yet</div>";
+  } catch(e) {}
+}
+
+// Predictions vs actuals
+async function loadPvA(){
+  document.getElementById("pva-table").innerHTML = `<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
+  try {
+    const season = document.getElementById("pa-season").value;
+    const sector = document.getElementById("pa-sector").value;
+    let url = "/api/records/predictions-vs-actuals";
+    const params = [];
+    if(season) params.push(`season=${season}`);
+    if(sector) params.push(`sector=${sector}`);
+    if(params.length) url += "?" + params.join("&");
+
+    const res  = await fetch(url);
+    const data = await res.json();
+    const records = data.records || [];
+
+    if(!records.length){
+      document.getElementById("pva-table").innerHTML = `<div class="text-gray-400 text-sm py-4 text-center">No comparison data yet. Predictions are saved automatically when you use the dashboard.</div>`;
+      return;
+    }
+
+    document.getElementById("pva-table").innerHTML = `
+      <table class="w-full text-xs">
+        <thead><tr class="text-left text-gray-400 border-b uppercase tracking-wide">
+          <th class="pb-2 pr-3">Year</th><th class="pb-2 pr-3">Sector</th><th class="pb-2 pr-3">Season</th>
+          <th class="pb-2 pr-3">Pred Onset</th><th class="pb-2 pr-3">Act Onset</th><th class="pb-2 pr-3">Error</th>
+          <th class="pb-2 pr-3">Pred Rain</th><th class="pb-2 pr-3">Act Rain</th><th class="pb-2 pr-3">Error</th>
+          <th class="pb-2">Confidence</th>
+        </tr></thead>
+        <tbody>${records.map(r => {
+          const onsetErr = r.onset_error_days;
+          const rainErr  = r.rainfall_error_mm ? Math.round(r.rainfall_error_mm) : "—";
+          const errColor = Math.abs(onsetErr||0) <= 7 ? "text-green-600" : Math.abs(onsetErr||0) <= 14 ? "text-yellow-600" : "text-red-600";
+          return `<tr class="border-b hover:bg-gray-50">
+            <td class="py-2 pr-3">${r.year}</td>
+            <td class="py-2 pr-3">${r.sector}</td>
+            <td class="py-2 pr-3">${r.season}</td>
+            <td class="py-2 pr-3">${r.predicted_onset_date||"—"}</td>
+            <td class="py-2 pr-3">${r.actual_onset_date||"—"}</td>
+            <td class="py-2 pr-3 ${errColor} font-semibold">${onsetErr!=null?(onsetErr>0?"+":"")+onsetErr+"d":"—"}</td>
+            <td class="py-2 pr-3">${r.predicted_rainfall_mm ? Math.round(r.predicted_rainfall_mm)+"mm" : "—"}</td>
+            <td class="py-2 pr-3">${r.actual_rainfall_mm ? Math.round(r.actual_rainfall_mm)+"mm" : "—"}</td>
+            <td class="py-2 pr-3">${rainErr!=="—"?(rainErr>0?"+":"")+rainErr+"mm":"—"}</td>
+            <td class="py-2"><span class="px-2 py-0.5 rounded-full text-xs font-semibold ${r.confidence==="HIGH"?"bg-green-100 text-green-700":r.confidence==="MEDIUM"?"bg-yellow-100 text-yellow-700":"bg-red-100 text-red-600"}">${r.confidence||"—"}</span></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+      <div class="text-xs text-gray-400 mt-2">${records.length} comparison rows found.</div>`;
+  } catch(e) {
+    document.getElementById("pva-table").innerHTML = `<div class="text-red-500 text-sm">${e.message}</div>`;
+  }
+}
+
+// Daily weather records
+async function loadDailyWeather(){
+  document.getElementById("dw-table").innerHTML = `<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
+  try {
+    const sector = document.getElementById("dw-sector").value;
+    const url = sector ? `/api/recorder/history?sector=${sector}&days=30` : `/api/recorder/history?days=30`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    const records = data.records || [];
+
+    if(!records.length){
+      document.getElementById("dw-table").innerHTML = `<div class="text-gray-400 text-sm py-4 text-center">No daily records yet. The recorder runs automatically at startup.</div>`;
+      return;
+    }
+
+    document.getElementById("dw-table").innerHTML = `
+      <table class="w-full text-xs">
+        <thead><tr class="text-left text-gray-400 border-b uppercase tracking-wide">
+          <th class="pb-2 pr-3">Date</th><th class="pb-2 pr-3">Sector</th>
+          <th class="pb-2 pr-3">Max °C</th><th class="pb-2 pr-3">Min °C</th>
+          <th class="pb-2 pr-3">Rain mm</th><th class="pb-2 pr-3">Humidity</th>
+          <th class="pb-2">Description</th>
+        </tr></thead>
+        <tbody>${records.slice(0,50).map(r => `
+          <tr class="border-b hover:bg-gray-50">
+            <td class="py-1.5 pr-3 font-medium">${r.date}</td>
+            <td class="py-1.5 pr-3">${r.sector}</td>
+            <td class="py-1.5 pr-3 text-orange-600">${r.temp_max ? r.temp_max.toFixed(1) : "—"}°</td>
+            <td class="py-1.5 pr-3 text-blue-600">${r.temp_min ? r.temp_min.toFixed(1) : "—"}°</td>
+            <td class="py-1.5 pr-3">${r.rainfall_mm ?? "—"} mm</td>
+            <td class="py-1.5 pr-3">${r.humidity ?? "—"}%</td>
+            <td class="py-1.5 text-gray-500">${r.description || "—"}</td>
+          </tr>`).join("")}</tbody>
+      </table>
+      <div class="text-xs text-gray-400 mt-2">Showing last ${Math.min(50,records.length)} of ${records.length} records.</div>`;
+  } catch(e) {}
+}
+
+// Manual trigger recording
+async function triggerRecord(){
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = "Recording...";
+  document.getElementById("action-result").textContent = "";
+  try {
+    const res  = await fetch("/api/recorder/record-now", {method:"POST"});
+    const data = await res.json();
+    document.getElementById("action-result").innerHTML =
+      `<span class="${data.status==='ok'?'text-green-600':'text-red-500'}">
+        ${data.status==='ok'?'✅':'❌'} ${data.message || JSON.stringify(data)}
+      </span>`;
+    loadHealth(); loadDbSummary(); loadLog();
+  } catch(e) {
+    document.getElementById("action-result").textContent = "Error: " + e.message;
+  }
+  btn.disabled = false; btn.textContent = "📡 Record Today's Weather Now";
+}
+
+// Load all on page open
+document.addEventListener("DOMContentLoaded", function(){
+  loadHealth();
+  loadDbSummary();
+  loadLog();
+  loadPvA();
+  loadDailyWeather();
+});
+</script>
+{% endblock %}

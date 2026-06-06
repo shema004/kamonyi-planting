@@ -4,8 +4,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, Request, Query, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Query, HTTPException, Form, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -373,6 +373,63 @@ async def all_sector_decisions(
             "season_ending":    sum(1 for r in results if r["decision"]=="SEASON_ENDING"),
         }
     }
+
+
+# ── Admin configuration ────────────────────────────────────────────────────
+import hashlib, os
+ADMIN_EMAIL    = os.environ.get("ADMIN_EMAIL",    "admin@kamonyi.gov.rw")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Kamonyi2026!")
+ADMIN_SESSIONS = set()  # simple in-memory session store
+
+def _hash(s): return hashlib.sha256(s.encode()).hexdigest()
+def _make_session(): import secrets; return secrets.token_hex(32)
+def _valid_session(token): return token in ADMIN_SESSIONS
+
+
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(request: Request):
+    """Admin login page."""
+    return templates.TemplateResponse(request, "admin_login.html", {"error": None})
+
+
+@app.post("/admin/login")
+async def admin_login(
+    request:  Request,
+    email:    str = Form(...),
+    password: str = Form(...),
+):
+    """Process admin login."""
+    if email.strip() == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+        token = _make_session()
+        ADMIN_SESSIONS.add(token)
+        response = RedirectResponse(url="/admin", status_code=302)
+        response.set_cookie("admin_session", token, httponly=True, max_age=3600*8)
+        return response
+    return templates.TemplateResponse(request, "admin_login.html", {
+        "error": "Invalid email or password."
+    })
+
+
+@app.get("/admin/logout")
+async def admin_logout(request: Request):
+    token = request.cookies.get("admin_session","")
+    ADMIN_SESSIONS.discard(token)
+    response = RedirectResponse(url="/admin/login", status_code=302)
+    response.delete_cookie("admin_session")
+    return response
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(request: Request):
+    """Admin dashboard — requires login."""
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse(request, "admin.html", {
+        "sectors":      SECTORS,
+        "seasons":      SEASONS,
+        "season_labels":SEASON_LABELS,
+    })
 
 @app.get("/health")
 async def health():

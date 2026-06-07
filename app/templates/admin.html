@@ -101,15 +101,21 @@
     </div>
     <div id="pva-table"><div class="flex justify-center py-6"><div class="spinner"></div></div></div>
   </div>
-  <!-- Calendar Records -->
+  <!-- Daily Records Table -->
   <div class="bg-white rounded-2xl shadow-md p-5">
     <div class="flex items-center justify-between mb-4">
-      <h3 class="font-semibold text-gray-700">📅 Calendar Weather Records</h3>
-      <select id="cal-days" onchange="loadCalendar()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
-        <option value="7">Last 7 days</option>
-        <option value="30" selected>Last 30 days</option>
-        <option value="90">Last 90 days</option>
-      </select>
+      <div>
+        <h3 class="font-semibold text-gray-700">📅 Daily Weather Records — Per Sector</h3>
+        <p class="text-xs text-gray-400 mt-0.5">Rainfall (mm), Max Temp (°C), Min Temp (°C) recorded every day for each sector</p>
+      </div>
+      <div class="flex gap-2 items-center">
+        <select id="cal-days" onchange="loadCalendar()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+        <button onclick="loadCalendar()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg">Refresh</button>
+      </div>
     </div>
     <div id="cal-table"><div class="flex justify-center py-6"><div class="spinner"></div></div></div>
   </div>
@@ -358,43 +364,108 @@ async function loadPvA(){
   }
 }
 
-// ── Calendar Records ──────────────────────────────────────────────────────
+// ── Daily Records ────────────────────────────────────────────────────────
 async function loadCalendar(){
-  document.getElementById("cal-table").innerHTML=`<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
+  document.getElementById("cal-table").innerHTML=
+    `<div class="flex justify-center py-6"><div class="spinner"></div></div>`;
   try {
     const days = document.getElementById("cal-days").value;
     const res  = await fetch(`/admin/api/calendar?days=${days}`);
     const data = await res.json();
-    const records = data.records||[];
-    if(!records.length){
-      document.getElementById("cal-table").innerHTML=`<div class="text-gray-400 text-sm py-4 text-center">No calendar records yet. Recording starts automatically each day.</div>`;
+    const records = data.records || [];
+    const dates   = data.dates   || [];
+    const sectors = data.sectors || [];
+
+    if(!records.length || !dates.length){
+      document.getElementById("cal-table").innerHTML=
+        `<div class="text-gray-400 text-sm py-6 text-center">
+          <div class="text-4xl mb-2">📭</div>
+          No daily records yet.<br>
+          <span class="text-xs">The recorder runs automatically every day at startup.<br>
+          Click <b>"Record Today's Weather"</b> on the Overview tab to trigger it now.</span>
+        </div>`;
       return;
     }
-    document.getElementById("cal-table").innerHTML=`
+
+    // Build a lookup: {date: {sector: {temp_max, temp_min, rainfall_mm}}}
+    const lookup = {};
+    records.forEach(r => {
+      if(!lookup[r.date]) lookup[r.date] = {};
+      lookup[r.date][r.sector] = {
+        max:  r.temp_max  != null ? r.temp_max.toFixed(1)  : "—",
+        min:  r.temp_min  != null ? r.temp_min.toFixed(1)  : "—",
+        rain: r.rainfall_mm != null ? r.rainfall_mm.toFixed(1) : "—",
+      };
+    });
+
+    // Count sectors recorded per date for status badge
+    const TOTAL_SECTORS = sectors.length;
+
+    // Build table: rows = dates, columns = sectors × 3 fields
+    // For readability: one row per date, one column group per sector
+    // Each sector column shows: Rain / Tmax / Tmin stacked
+    const headerCols = sectors.map(s =>
+      `<th class="pb-2 px-2 text-center border-l border-gray-100" colspan="3">${s}</th>`
+    ).join("");
+
+    const subHeader = sectors.map(() =>
+      `<th class="pb-1 px-1 text-gray-300 font-normal border-l border-gray-100">Rain</th>
+       <th class="pb-1 px-1 text-gray-300 font-normal">Max</th>
+       <th class="pb-1 px-1 text-gray-300 font-normal">Min</th>`
+    ).join("");
+
+    const bodyRows = dates.map(date => {
+      const dayData  = lookup[date] || {};
+      const nSectors = Object.keys(dayData).length;
+      const complete = nSectors === TOTAL_SECTORS;
+      const statusBadge = complete
+        ? `<span class="text-green-600 font-bold">✅ ${nSectors}/${TOTAL_SECTORS}</span>`
+        : `<span class="text-red-500 font-bold">⚠ ${nSectors}/${TOTAL_SECTORS}</span>`;
+
+      const cells = sectors.map(s => {
+        const v = dayData[s];
+        if(!v) return `<td class="px-1 py-2 text-gray-300 border-l border-gray-50 text-center">—</td>
+                       <td class="px-1 py-2 text-gray-300 text-center">—</td>
+                       <td class="px-1 py-2 text-gray-300 text-center">—</td>`;
+        return `<td class="px-1 py-2 text-blue-600 border-l border-gray-50 text-center">${v.rain}mm</td>
+                <td class="px-1 py-2 text-orange-500 text-center">${v.max}°</td>
+                <td class="px-1 py-2 text-blue-400 text-center">${v.min}°</td>`;
+      }).join("");
+
+      return `<tr class="border-b hover:bg-gray-50 ${complete?'':'bg-red-50/30'}">
+        <td class="py-2 pr-3 font-semibold text-gray-700 whitespace-nowrap">${date}</td>
+        <td class="py-2 pr-3 text-xs">${statusBadge}</td>
+        ${cells}
+      </tr>`;
+    }).join("");
+
+    document.getElementById("cal-table").innerHTML = `
       <div class="overflow-x-auto">
-      <table class="w-full text-xs">
-        <thead><tr class="text-left text-gray-400 border-b uppercase tracking-wide">
-          <th class="pb-2 pr-3">Date</th><th class="pb-2 pr-3">Sector</th>
-          <th class="pb-2 pr-3">Max °C</th><th class="pb-2 pr-3">Min °C</th>
-          <th class="pb-2 pr-3">Rain mm</th><th class="pb-2 pr-3">Humidity</th>
-          <th class="pb-2 pr-3">Wind</th><th class="pb-2 pr-3">Integrated</th><th class="pb-2">Description</th>
-        </tr></thead>
-        <tbody>${records.map(r=>`
-          <tr class="border-b hover:bg-gray-50">
-            <td class="py-1.5 pr-3 font-medium">${r.date}</td>
-            <td class="py-1.5 pr-3">${r.sector}</td>
-            <td class="py-1.5 pr-3 text-orange-600">${r.temp_max?r.temp_max.toFixed(1)+"°":"—"}</td>
-            <td class="py-1.5 pr-3 text-blue-600">${r.temp_min?r.temp_min.toFixed(1)+"°":"—"}</td>
-            <td class="py-1.5 pr-3">${r.rainfall_mm??0} mm</td>
-            <td class="py-1.5 pr-3">${r.humidity??"-"}%</td>
-            <td class="py-1.5 pr-3">${r.wind_speed??"-"} m/s</td>
-            <td class="py-1.5 pr-3"><span class="${r.auto_integrated?'text-green-600':'text-gray-400'}">${r.auto_integrated?'✅ Yes':'⏳ Pending'}</span></td>
-            <td class="py-1.5 text-gray-500">${r.description||"—"}</td>
-          </tr>`).join("")}
-        </tbody>
-      </table></div>
-      <div class="text-xs text-gray-400 mt-2">${records.length} records shown</div>`;
-  } catch(e) {}
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-50 border-b-2 border-gray-200">
+              <th class="pb-2 pr-3 text-left text-gray-500">Date</th>
+              <th class="pb-2 pr-3 text-left text-gray-500">Coverage</th>
+              ${headerCols}
+            </tr>
+            <tr class="bg-gray-50 border-b border-gray-200 text-xs">
+              <th colspan="2"></th>
+              ${subHeader}
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+      <div class="flex items-center gap-4 mt-3 text-xs text-gray-400">
+        <span>✅ = all ${TOTAL_SECTORS} sectors recorded</span>
+        <span>⚠ = some sectors missing (check API or connection)</span>
+        <span>${dates.length} days shown</span>
+      </div>`;
+
+  } catch(e) {
+    document.getElementById("cal-table").innerHTML=
+      `<div class="text-red-500 text-sm py-4 text-center">Error loading records: ${e.message}</div>`;
+  }
 }
 
 // ── Manual record trigger ─────────────────────────────────────────────────

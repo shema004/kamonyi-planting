@@ -193,22 +193,42 @@ def already_recorded_today() -> bool:
 
 def start_daily_recorder():
     """
-    Run at app startup in a background thread.
-    Records today if not already done (all 12 sectors).
-    """
-    def _run():
-        try:
-            if already_recorded_today():
-                print("[recorder] Today already fully recorded (12/12) — skipping.")
-                return
-            print("[recorder] Starting daily recording for all 12 sectors...")
-            record_today()
-        except Exception as e:
-            print(f"[recorder] ❌ Recording failed: {e}")
-            import traceback; traceback.print_exc()
+    Starts a persistent background scheduler that runs as long as the app is alive.
 
-    t = threading.Thread(target=_run, daemon=True)
+    Checks every hour whether today has been recorded.
+    This means the app can run for weeks without restarting and still
+    record every single day reliably — even if it never restarts.
+
+    Flow every hour:
+      → Has today been fully recorded (12/12)?
+          YES → sleep 1 hour, check again
+          NO  → record now, sleep 1 hour, check again
+    """
+    def _scheduler():
+        import time as _time
+
+        # Record immediately on startup if needed
+        if not already_recorded_today():
+            print("[recorder] Startup: recording today for all 12 sectors...")
+            record_today()
+        else:
+            print("[recorder] Startup: today already recorded (12/12) — scheduler standing by.")
+
+        # Then check every hour for the rest of the app's life
+        while True:
+            _time.sleep(3600)   # wait 1 hour
+            try:
+                if not already_recorded_today():
+                    print("[recorder] Hourly check: new day detected — recording now...")
+                    record_today()
+                # else: already recorded today, nothing to do
+            except Exception as e:
+                print(f"[recorder] ❌ Hourly recording failed: {e}")
+                import traceback; traceback.print_exc()
+
+    t = threading.Thread(target=_scheduler, daemon=True, name="daily-recorder")
     t.start()
+    print("[recorder] Persistent daily scheduler started (checks every hour)")
 
 
 # ── Query functions ────────────────────────────────────────────────────────

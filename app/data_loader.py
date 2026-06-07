@@ -151,27 +151,4 @@ def load_all_data(path=None):
     print(f"[data_loader] {len(merged)} rows | {merged['sector'].nunique()} sectors (incl. Ngamba proxy) | "
           f"years {merged['year'].min()}-{merged['year'].max()}")
 
-    # Auto-integrate recorded daily data if enough has accumulated (>= 60 days)
-    try:
-        # recorder integration handled in main.py
-        rec = get_recorded_data_for_model()
-        if rec["ready"] and rec["dataframe"] is not None:
-            rdf = rec["dataframe"]
-            # Add missing columns to match merged schema
-            for col in merged.columns:
-                if col not in rdf.columns:
-                    rdf[col] = np.nan
-            merged = pd.concat([merged, rdf[merged.columns]], ignore_index=True)
-            merged = merged.sort_values(["sector","season","year"]).reset_index(drop=True)
-            n = len(rec["seasons_ready"])
-            print(f"[data_loader] ✅ Auto-integrated {n} sector-season-year records from daily recorder")
-        else:
-            summary = rec.get("summary", {})
-            days = summary.get("total_days", 0)
-            needed = summary.get("days_needed", 60)
-            if days > 0:
-                print(f"[data_loader] ⏳ Recorder has {days} days — needs {needed} to integrate (collecting...)")
-    except Exception as e:
-        print(f"[data_loader] Could not integrate recorder data: {e}")
-
     return rf, mx, mn, merged

@@ -284,7 +284,20 @@ async def recorder_summary():
 
 @app.get("/api/recorder/log")
 async def recorder_log(limit: int = Query(30)):
-    return {"log": get_recording_log(limit)}
+    rows = get_recording_log(limit)
+    # Normalise field names so dashboard JS works
+    normalised = []
+    for r in rows:
+        normalised.append({
+            "date":        r.get("date"),
+            "recorded_at": r.get("recorded_at"),
+            "sectors_ok":  r.get("sectors_ok", 0),
+            "sectors_failed": r.get("sectors_failed", 0),
+            "failed_list": r.get("failed_list",""),
+            "status":      r.get("status",""),
+            "message":     f"{r.get('sectors_ok',0)}/12 sectors recorded",
+        })
+    return {"log": normalised}
 
 
 @app.get("/api/recorder/history")

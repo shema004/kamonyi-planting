@@ -107,7 +107,7 @@
       <h2 class="font-semibold text-gray-700">💾 Daily Data Recorder</h2>
       <p class="text-xs text-gray-400 mt-0.5">Recording daily weather per sector — feeds all future predictions</p>
     </div>
-    <a href="/api/recorder/summary" target="_blank" class="text-xs text-green-600 hover:underline">View full log →</a>
+    <a href="/logs" class="text-xs text-green-600 hover:underline">View full log →</a>
   </div>
   <div id="recorder-status" class="flex flex-wrap gap-4 text-sm">
     <div class="flex justify-center w-full py-3"><div class="spinner"></div></div>
@@ -517,35 +517,48 @@ async function loadDecisionSummary(){
 // ── Recorder ──────────────────────────────────────────────────────────────
 async function loadRecorderStatus(){
   try {
-    const res  = await fetch('/api/recorder/summary');
-    const data = await res.json();
-    const logRes  = await fetch('/api/recorder/log?limit=3');
+    const [sumRes, logRes] = await Promise.all([
+      fetch('/api/recorder/summary'),
+      fetch('/api/recorder/log?limit=1')
+    ]);
+    const data    = await sumRes.json();
     const logData = await logRes.json();
     const lastLog = logData.log && logData.log[0];
-    const statusColor = data.total_records>0?'text-green-600':'text-yellow-600';
-    const statusIcon  = data.total_records>0?'✅':'⏳';
+
+    const hasRecords   = data.total_records > 0;
+    const statusColor  = hasRecords ? 'text-green-600' : 'text-orange-500';
+    const statusIcon   = hasRecords ? '✅' : '🔄';
+    const lastStatus   = lastLog
+      ? `${lastLog.sectors_ok}/12 sectors · ${lastLog.recorded_at}`
+      : 'Recording runs automatically every hour';
+    const lastColor    = lastLog
+      ? (lastLog.status==='ok' ? 'text-green-600' : 'text-orange-500')
+      : 'text-gray-400';
+
     document.getElementById("recorder-status").innerHTML=`
       <div class="bg-gray-50 rounded-xl px-4 py-3 flex-1 min-w-40">
         <div class="text-xs text-gray-400 mb-1">Total Records</div>
         <div class="font-bold text-lg ${statusColor}">${statusIcon} ${data.total_records}</div>
-        <div class="text-xs text-gray-400">${data.unique_days} unique days recorded</div>
+        <div class="text-xs text-gray-400">${data.unique_days || 0} unique days recorded</div>
       </div>
       <div class="bg-gray-50 rounded-xl px-4 py-3 flex-1 min-w-40">
         <div class="text-xs text-gray-400 mb-1">Date Range</div>
-        <div class="font-semibold">${data.date_from||'Not yet started'}</div>
-        <div class="text-xs text-gray-400">→ ${data.date_to||'—'}</div>
+        <div class="font-semibold">${data.date_from || '—'}</div>
+        <div class="text-xs text-gray-400">→ ${data.date_to || '—'}</div>
       </div>
       <div class="bg-gray-50 rounded-xl px-4 py-3 flex-1 min-w-40">
         <div class="text-xs text-gray-400 mb-1">Last Recording</div>
-        <div class="font-semibold text-xs">${lastLog?lastLog.date:'No recordings yet'}</div>
-        <div class="text-xs ${lastLog&&lastLog.status==='ok'?'text-green-600':'text-yellow-600'}">${lastLog?lastLog.message:'Recorder starts on app launch'}</div>
+        <div class="text-xs font-medium ${lastColor}">${lastStatus}</div>
+        <div class="text-xs text-gray-400 mt-1">Checks every hour · records if new day</div>
       </div>
       <div class="bg-gray-50 rounded-xl px-4 py-3 flex-1 min-w-40">
-        <div class="text-xs text-gray-400 mb-1">Purpose</div>
-        <div class="text-xs text-gray-600">Feeds <strong>Season C (Impeshyi)</strong> predictions and all future decisions.</div>
+        <div class="text-xs text-gray-400 mb-1">Status</div>
+        <div class="text-xs font-semibold text-green-600">🟢 Scheduler running</div>
+        <div class="text-xs text-gray-400 mt-1">Automatic · no action needed</div>
       </div>`;
   } catch(e) {
-    document.getElementById("recorder-status").innerHTML='<div class="text-xs text-gray-400">Could not load recorder status.</div>';
+    document.getElementById("recorder-status").innerHTML=
+      '<div class="text-xs text-gray-400">Could not load recorder status.</div>';
   }
 }
 

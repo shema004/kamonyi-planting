@@ -17,7 +17,11 @@ from weather_api import get_forecast_summary, get_all_sectors_forecast, get_7day
 from crops       import suggest_crops_for_prediction
 from recorder    import (try_record_today, get_recorded_history, get_recording_log,
                          get_recorded_summary, init_db, save_bulk_predictions,
-                         backfill_actuals_from_excel, get_prediction_vs_actual, get_actuals_summary)
+                         backfill_actuals_from_excel, get_prediction_vs_actual, get_actuals_summary,
+                         verify_admin_login, get_admin_users, create_admin_user,
+                         update_admin_password, delete_admin_user, get_settings,
+                         update_setting, get_calendar_summary, record_to_calendar,
+                         check_and_auto_integrate)
 from season_status import get_current_season_status
 from decision_engine import make_planting_decision, make_all_sector_decisions
 import config
@@ -383,15 +387,13 @@ async def all_sector_decisions(
     }
 
 
-# ── Admin configuration ────────────────────────────────────────────────────
-import hashlib, os
-ADMIN_EMAIL    = os.environ.get("ADMIN_EMAIL",    "admin@kamonyi.gov.rw")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Kamonyi2026!")
-ADMIN_SESSIONS = set()  # simple in-memory session store
+# ── Admin session management ──────────────────────────────────────────────
+import secrets as _secrets
+ADMIN_SESSIONS: dict = {}   # token -> {email, name, role}
 
-def _hash(s): return hashlib.sha256(s.encode()).hexdigest()
-def _make_session(): import secrets; return secrets.token_hex(32)
+def _make_session(): return _secrets.token_hex(32)
 def _valid_session(token): return token in ADMIN_SESSIONS
+def _session_user(token): return ADMIN_SESSIONS.get(token, {})
 
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -406,10 +408,11 @@ async def admin_login(
     email:    str = Form(...),
     password: str = Form(...),
 ):
-    """Process admin login."""
-    if email.strip() == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+    """Process admin login using DB."""
+    user = verify_admin_login(email.strip(), password)
+    if user:
         token = _make_session()
-        ADMIN_SESSIONS.add(token)
+        ADMIN_SESSIONS[token] = {"email": user["email"], "name": user["name"], "role": user["role"], "id": user["id"]}
         response = RedirectResponse(url="/admin", status_code=302)
         response.set_cookie("admin_session", token, httponly=True, max_age=3600*8)
         return response
@@ -421,7 +424,7 @@ async def admin_login(
 @app.get("/admin/logout")
 async def admin_logout(request: Request):
     token = request.cookies.get("admin_session","")
-    ADMIN_SESSIONS.discard(token)
+    ADMIN_SESSIONS.pop(token, None)
     response = RedirectResponse(url="/admin/login", status_code=302)
     response.delete_cookie("admin_session")
     return response
@@ -433,11 +436,89 @@ async def admin_dashboard(request: Request):
     token = request.cookies.get("admin_session","")
     if not _valid_session(token):
         return RedirectResponse(url="/admin/login", status_code=302)
+    user     = _session_user(token)
+    settings = get_settings()
+    admins   = get_admin_users()
+    cal_sum  = get_calendar_summary()
     return templates.TemplateResponse(request, "admin.html", {
         "sectors":      SECTORS,
         "seasons":      SEASONS,
         "season_labels":SEASON_LABELS,
+        "current_user": user,
+        "settings":     settings,
+        "admins":       admins,
+        "cal_summary":  cal_sum,
     })
+
+
+# ── Admin API endpoints ────────────────────────────────────────────────────
+
+@app.post("/admin/api/settings")
+async def save_settings(request: Request):
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token): raise HTTPException(status_code=401)
+    user = _session_user(token)
+    body = await request.json()
+    for key, val in body.items():
+        update_setting(key, str(val), user.get("email","admin"))
+    return {"status": "ok", "saved": len(body)}
+
+
+@app.post("/admin/api/users/create")
+async def admin_create_user(request: Request):
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token): raise HTTPException(status_code=401)
+    user = _session_user(token)
+    if user.get("role") not in ("superadmin", "admin"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    body = await request.json()
+    ok = create_admin_user(body["email"], body["password"], body["name"], body.get("role","staff"))
+    return {"status": "ok" if ok else "error"}
+
+
+@app.post("/admin/api/users/{user_id}/password")
+async def admin_change_password(user_id: int, request: Request):
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token): raise HTTPException(status_code=401)
+    body = await request.json()
+    ok   = update_admin_password(user_id, body["password"])
+    return {"status": "ok" if ok else "error"}
+
+
+@app.delete("/admin/api/users/{user_id}")
+async def admin_delete_user(user_id: int, request: Request):
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token): raise HTTPException(status_code=401)
+    ok = delete_admin_user(user_id)
+    return {"status": "ok" if ok else "error"}
+
+
+@app.post("/admin/api/record-now")
+async def admin_record_now(request: Request):
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token): raise HTTPException(status_code=401)
+    import threading
+    result = {"status": "triggered"}
+    def _run():
+        record_to_calendar(config.OWM_API_KEY)
+    threading.Thread(target=_run, daemon=True).start()
+    return result
+
+
+@app.get("/admin/api/calendar")
+async def admin_calendar_data(request: Request, days: int = Query(30)):
+    token = request.cookies.get("admin_session","")
+    if not _valid_session(token): raise HTTPException(status_code=401)
+    import sqlite3 as _sq
+    from recorder import DB_PATH as _DB
+    conn = _sq.connect(str(_DB))
+    conn.row_factory = _sq.Row
+    rows = conn.execute(
+        "SELECT * FROM recorded_calendar ORDER BY date DESC, sector LIMIT ?",
+        (days * 12,)
+    ).fetchall()
+    conn.close()
+    return {"records": [dict(r) for r in rows], "count": len(rows)}
 
 @app.get("/health")
 async def health():

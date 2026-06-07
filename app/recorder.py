@@ -207,24 +207,17 @@ def start_daily_recorder():
     def _scheduler():
         import time as _time
 
-        # Record immediately on startup if needed
-        if not already_recorded_today():
-            print("[recorder] Startup: recording today for all 12 sectors...")
-            record_today()
-        else:
-            print("[recorder] Startup: today already recorded (12/12) — scheduler standing by.")
-
-        # Then check every hour for the rest of the app's life
         while True:
-            _time.sleep(3600)   # wait 1 hour
             try:
                 if not already_recorded_today():
-                    print("[recorder] Hourly check: new day detected — recording now...")
+                    print("[recorder] New day detected — recording all 12 sectors now...")
                     record_today()
-                # else: already recorded today, nothing to do
+                # Already recorded today — nothing to do
             except Exception as e:
-                print(f"[recorder] ❌ Hourly recording failed: {e}")
+                print(f"[recorder] ❌ Recording failed: {e}")
                 import traceback; traceback.print_exc()
+
+            _time.sleep(3600)   # sleep 1 hour, then check again
 
     t = threading.Thread(target=_scheduler, daemon=True, name="daily-recorder")
     t.start()

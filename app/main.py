@@ -188,10 +188,10 @@ async def all_decisions(season: str = Query("A"), year: int = Query(None)):
         raise HTTPException(status_code=400, detail="Season must be A or B")
     target_year = year or (datetime.now().year + 1)
 
-    # For future years: decisions are based on predictions (no live forecast)
-    # For current year: use live forecast to adjust
+    # Never fetch live weather for decisions automatically - it causes 12 slow API calls
+    # Decisions use historical/predicted data only for speed
     is_future = target_year > datetime.now().year
-    forecasts  = {} if is_future else get_all_sectors_forecast(config.OWM_API_KEY)
+    forecasts  = {}   # always empty - decisions are fast without live weather
 
     # Build a simulated "today" anchored to the target year
     # so onset windows are calculated relative to the correct year

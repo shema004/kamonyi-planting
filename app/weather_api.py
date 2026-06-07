@@ -25,6 +25,21 @@ SECTOR_COORDS = {
 }
 
 KAMONYI_CENTER  = (-2.12, 29.83)
+# ── Simple in-memory cache (30 min TTL) ───────────────────────────────────
+import time as _time
+_CACHE: dict = {}
+_CACHE_TTL   = 1800  # 30 minutes
+
+def _cache_get(key):
+    entry = _CACHE.get(key)
+    if entry and (_time.time() - entry["ts"]) < _CACHE_TTL:
+        return entry["data"]
+    return None
+
+def _cache_set(key, data):
+    _CACHE[key] = {"data": data, "ts": _time.time()}
+
+
 BASE_FORECAST   = "https://api.openweathermap.org/data/2.5/forecast"
 BASE_CURRENT    = "https://api.openweathermap.org/data/2.5/weather"
 
@@ -67,9 +82,13 @@ def get_current_weather(api_key: str, sector: str = None) -> Optional[dict]:
 def get_7day_forecast(api_key: str, sector: str = None) -> Optional[dict]:
     """
     Fetch 7-day forecast using OWM free /forecast endpoint.
-    Uses cnt=56 (56 x 3-hour steps = 168 hours = 7 days).
-    Returns daily aggregates.
+    Results cached for 30 minutes to avoid slow repeated API calls.
     """
+    cache_key = f"forecast_{sector or 'district'}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
     lat, lon = SECTOR_COORDS.get(sector, KAMONYI_CENTER) if sector else KAMONYI_CENTER
 
     data = _get(BASE_FORECAST, {
@@ -115,7 +134,7 @@ def get_7day_forecast(api_key: str, sector: str = None) -> Optional[dict]:
         })
 
     sector_label = sector or "Kamonyi_District"
-    return {
+    result = {
         "sector":         sector_label,
         "lat":            lat,
         "lon":            lon,

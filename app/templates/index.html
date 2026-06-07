@@ -663,7 +663,7 @@ document.getElementById("btn-predict").addEventListener("click", loadPredictions
 document.getElementById("sel-season").addEventListener("change", function(){
   updateSeasonLabels();
   loadPredictions();
-  loadDecisionSummary();
+  loadDecisionSummary();   // fast - no OWM calls
 });
 document.getElementById("sel-year").addEventListener("change", function(){ updateSeasonLabels(); loadPredictions(); });
 document.getElementById("sel-forecast-sector").addEventListener("change", function(){
@@ -671,10 +671,17 @@ document.getElementById("sel-forecast-sector").addEventListener("change", functi
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────
+// Load fast API calls first (no OWM requests)
 loadCurrentSeason();
 loadRecorderStatus();
+
+// Load predictions (no OWM unless Live Weather checked)
 loadPredictions();
-loadForecast("Gacurabwenge");
+
+// Load decisions (now fast - no OWM calls)
 loadDecisionSummary();
+
+// Load forecast last - single OWM call, doesn't block anything
+setTimeout(() => loadForecast("Gacurabwenge"), 100);
 </script>
 {% endblock %}

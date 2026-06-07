@@ -197,14 +197,18 @@
 </style>
 <script>
 // ── Season year labels ────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", function(){
-  const yr = new Date().getFullYear(), mo = new Date().getMonth()+1;
-  const bYr = mo > 6 ? yr+1 : yr;
-  const a = document.getElementById("opt-season-a");
-  const b = document.getElementById("opt-season-b");
+function updateSeasonLabels(){
+  const yr  = parseInt(document.getElementById("sel-year").value) || new Date().getFullYear();
+  const a   = document.getElementById("opt-season-a");
+  const b   = document.getElementById("opt-season-b");
+  // Season A: Sep {yr} – Feb {yr+1}
   if(a) a.textContent = `Season A – Urugaryi/Umuhindo (Sep ${yr} – Feb ${yr+1})`;
-  if(b) b.textContent = `Season B – Itumba (Mar ${bYr} – Jun ${bYr})`;
-});
+  // Season B: Mar {yr} – Jun {yr}
+  if(b) b.textContent = `Season B – Itumba (Mar ${yr} – Jun ${yr})`;
+}
+
+// Update labels on page load and whenever year changes
+document.addEventListener("DOMContentLoaded", updateSeasonLabels);
 
 // ── Map setup ─────────────────────────────────────────────────────────────
 const map = L.map("map", {zoomControl:true}).setView([-2.00, 29.93], 10);
@@ -467,7 +471,8 @@ async function loadDecisionSummary(){
   const el = document.getElementById("decision-summary");
   el.innerHTML=`<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
   try {
-    const res  = await fetch(`/api/decision?season=${season}`);
+    const year = document.getElementById('sel-year').value;
+    const res  = await fetch(`/api/decision?season=${season}&year=${year}`);
     if(!res.ok) throw new Error("Decision API unavailable");
     const data = await res.json();
     const colorMap = {
@@ -479,9 +484,8 @@ async function loadDecisionSummary(){
       "SEASON_ENDING":     {bg:"#fee2e2",text:"#991b1b",emoji:"🔚"},
       "PREPARE":           {bg:"#ede9fe",text:"#4c1d95",emoji:"📋"},
     };
-    const yr2=new Date().getFullYear(), mo2=new Date().getMonth()+1;
-    const bYr2=mo2>6?yr2+1:yr2;
-    const seasonLabel=season==="A"?`Season A – Urugaryi/Umuhindo (Sep ${yr2} – Feb ${yr2+1})`:`Season B – Itumba (Mar ${bYr2} – Jun ${bYr2})`;
+    const yr2=parseInt(document.getElementById('sel-year').value)||new Date().getFullYear();
+    const seasonLabel=season==="A"?`Season A – Urugaryi/Umuhindo (Sep ${yr2} – Feb ${yr2+1})`:`Season B – Itumba (Mar ${yr2} – Jun ${yr2})`;
     const labelEl=document.getElementById("decision-season-label");
     if(labelEl) labelEl.textContent=seasonLabel;
 
@@ -498,7 +502,7 @@ async function loadDecisionSummary(){
           <span class="text-lg">${d.emoji}</span>
         </div>
         <div class="text-xs font-bold mb-1" style="color:${cm.text}">${d.headline}</div>
-        <div class="text-xs mb-1" style="color:${cm.text};opacity:0.7">${(()=>{const yr=new Date().getFullYear(),mo=new Date().getMonth()+1;return d.season==="A"?`Sep ${yr} \u2013 Feb ${yr+1}`:`Mar ${mo>6?yr+1:yr} \u2013 Jun ${mo>6?yr+1:yr}`;})()}</div>
+        <div class="text-xs mb-1" style="color:${cm.text};opacity:0.7">${(()=>{const yr=parseInt(document.getElementById('sel-year').value)||new Date().getFullYear();return d.season==="A"?`Sep ${yr} \u2013 Feb ${yr+1}`:`Mar ${yr} \u2013 Jun ${yr}`;})()}</div>
         <div class="text-xs text-gray-500">${d.action.slice(0,60)}${d.action.length>60?'...':''}</div>
         <div class="text-xs text-gray-400 mt-1">Rain: ${d.current_dekad_rain_mm}mm | ${d.weeks_left_in_season}wks left</div>
       </a>`;
@@ -644,10 +648,11 @@ async function loadSeasonRecommendation(season, progress){
 // ── Event listeners ───────────────────────────────────────────────────────
 document.getElementById("btn-predict").addEventListener("click", loadPredictions);
 document.getElementById("sel-season").addEventListener("change", function(){
+  updateSeasonLabels();
   loadPredictions();
   loadDecisionSummary();
 });
-document.getElementById("sel-year").addEventListener("change", loadPredictions);
+document.getElementById("sel-year").addEventListener("change", function(){ updateSeasonLabels(); loadPredictions(); });
 document.getElementById("sel-forecast-sector").addEventListener("change", function(){
   loadForecast(this.value);
 });

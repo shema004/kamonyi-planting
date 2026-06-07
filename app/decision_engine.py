@@ -147,6 +147,7 @@ def make_planting_decision(
     predicted_onset:  dict,          # from model.predict()
     forecast_summary: Optional[dict], # from weather_api.get_7day_forecast()
     today:            date = None,
+    target_year:      int  = None,   # year being predicted for
 ) -> dict:
     """
     Make a real-time planting decision for one sector/season.
@@ -491,23 +492,20 @@ def make_planting_decision(
 
 def make_all_sector_decisions(
     model,
-    season:   str,
-    forecasts: dict,
-    today:    date = None,
+    season:      str,
+    forecasts:   dict,
+    today:       date = None,
+    target_year: int  = None,
 ) -> list:
     """
     Run the decision engine for all sectors for a given season.
-
-    Parameters
-    ----------
-    model     : PlantingModel instance
-    season    : "A" or "B"
-    forecasts : {sector: forecast_summary} from weather_api
+    target_year overrides the year used for predictions and onset windows.
     """
     results = []
+    yr = target_year or (today or date.today()).year
     for sector in model.available_sectors():
-        prediction = model.predict(sector, season, (today or date.today()).year)
+        prediction = model.predict(sector, season, yr)
         forecast   = forecasts.get(sector) if forecasts else None
-        decision   = make_planting_decision(sector, season, prediction, forecast, today)
+        decision   = make_planting_decision(sector, season, prediction, forecast, today, yr)
         results.append(decision)
     return results

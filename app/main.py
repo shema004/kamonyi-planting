@@ -183,20 +183,33 @@ async def weather_current(sector: str):
 # ── Decision API ───────────────────────────────────────────────────────────
 
 @app.get("/api/decision")
-async def all_decisions(season: str = Query("A")):
+async def all_decisions(season: str = Query("A"), year: int = Query(None)):
     if season not in ["A", "B"]:
         raise HTTPException(status_code=400, detail="Season must be A or B")
-    forecasts = get_all_sectors_forecast(config.OWM_API_KEY)
-    results   = make_all_sector_decisions(MODEL, season, forecasts, date.today())
-    urgency   = {
+    target_year = year or (datetime.now().year + 1)
+
+    # For future years: decisions are based on predictions (no live forecast)
+    # For current year: use live forecast to adjust
+    is_future = target_year > datetime.now().year
+    forecasts  = {} if is_future else get_all_sectors_forecast(config.OWM_API_KEY)
+
+    # Build a simulated "today" anchored to the target year
+    # so onset windows are calculated relative to the correct year
+    from datetime import date as date_cls
+    sim_today = date_cls(target_year, date.today().month, date.today().day)
+
+    results = make_all_sector_decisions(MODEL, season, forecasts, sim_today, target_year)
+    urgency = {
         "PLANT_NOW":0,"PLANT_SOON":1,"USE_EARLY_VARIETY":2,
         "SEASON_ACTIVE":3,"WAIT":4,"PREPARE":5,"SEASON_ENDING":6,"OFF_SEASON":7
     }
     results.sort(key=lambda r: urgency.get(r["decision"], 99))
     return {
-        "season":    season,
-        "today":     date.today().isoformat(),
-        "decisions": results,
+        "season":      season,
+        "target_year": target_year,
+        "is_future":   is_future,
+        "today":       sim_today.isoformat(),
+        "decisions":   results,
         "summary": {
             "plant_now":         sum(1 for r in results if r["decision"]=="PLANT_NOW"),
             "plant_soon":        sum(1 for r in results if r["decision"]=="PLANT_SOON"),
@@ -210,12 +223,16 @@ async def all_decisions(season: str = Query("A")):
 
 
 @app.get("/api/decision/{sector}")
-async def sector_decision(sector: str, season: str = Query("A")):
+async def sector_decision(sector: str, season: str = Query("A"), year: int = Query(None)):
     if sector not in SECTORS:
         raise HTTPException(status_code=404, detail="Sector not found")
-    prediction = MODEL.predict(sector, season, date.today().year)
-    forecast   = get_forecast_summary(config.OWM_API_KEY, sector)
-    return make_planting_decision(sector, season, prediction, forecast, date.today())
+    target_year = year or (datetime.now().year + 1)
+    is_future   = target_year > datetime.now().year
+    from datetime import date as date_cls
+    sim_today  = date_cls(target_year, date.today().month, date.today().day)
+    prediction = MODEL.predict(sector, season, target_year)
+    forecast   = None if is_future else get_forecast_summary(config.OWM_API_KEY, sector)
+    return make_planting_decision(sector, season, prediction, forecast, sim_today)
 
 
 # ── Season status ──────────────────────────────────────────────────────────

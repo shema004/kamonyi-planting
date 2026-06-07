@@ -301,7 +301,8 @@ async function loadDecision(){
   const year = document.getElementById("sel-year").value;
   const panel = document.getElementById("decision-panel");
   try {
-    const res  = await fetch(`/api/decision/${SECTOR}?season=${currentSeason}`);
+    const year = document.getElementById('sel-year')?.value || new Date().getFullYear();
+    const res  = await fetch(`/api/decision/${SECTOR}?season=${currentSeason}&year=${year}`);
     if(!res.ok) throw new Error("Decision unavailable");
     const d    = await res.json();
 

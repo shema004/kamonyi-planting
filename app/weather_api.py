@@ -144,6 +144,8 @@ def get_7day_forecast(api_key: str, sector: str = None) -> Optional[dict]:
         "n_days":         len(days),
         "api_limit_note":  "OWM free tier: up to 5 days (40 x 3-hour steps)",
     }
+    _cache_set(cache_key, result)
+    return result
 
 
 # Keep old name as alias so existing code doesn't break

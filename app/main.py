@@ -53,6 +53,19 @@ backfill_actuals_from_excel(MERGED_DF)
 start_daily_recorder()   # persistent hourly scheduler — records every day
 
 
+
+# ── Prediction cache (10 min TTL — predictions don't change minute-to-minute) ─
+import time as _time
+_PRED_CACHE: dict = {}
+_PRED_TTL = 600  # 10 minutes
+
+def _pred_cache_get(key):
+    e = _PRED_CACHE.get(key)
+    return e["data"] if e and (_time.time()-e["ts"]) < _PRED_TTL else None
+
+def _pred_cache_set(key, data):
+    _PRED_CACHE[key] = {"data": data, "ts": _time.time()}
+
 # ── Page routes ────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -107,6 +120,13 @@ async def predict_all(
     if live_weather:
         forecasts = get_all_sectors_forecast(config.OWM_API_KEY)
 
+    # Serve from cache if no live weather requested
+    cache_key = f"pred_{season}_{target_year}"
+    if not live_weather:
+        cached = _pred_cache_get(cache_key)
+        if cached:
+            return cached
+
     results = MODEL.predict_all_sectors(season, target_year, forecasts)
 
     # Tag Ngamba as proxy
@@ -123,7 +143,7 @@ async def predict_all(
     # Auto-save predictions
     save_bulk_predictions(results)
 
-    return {
+    response = {
         "season":       season,
         "season_label": SEASON_LABELS.get(season, season),
         "season_info":  SEASON_INFO.get(season, {}),
@@ -132,6 +152,9 @@ async def predict_all(
         "generated_at": datetime.now().isoformat(),
         "predictions":  results,
     }
+    if not live_weather:
+        _pred_cache_set(cache_key, response)
+    return response
 
 
 @app.get("/api/predict/{sector}")

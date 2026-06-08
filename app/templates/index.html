@@ -672,16 +672,14 @@ document.getElementById("sel-forecast-sector").addEventListener("change", functi
 
 // ── Init ──────────────────────────────────────────────────────────────────
 // Load fast API calls first (no OWM requests)
-loadCurrentSeason();
-loadRecorderStatus();
-
-// Load predictions (no OWM unless Live Weather checked)
-loadPredictions();
-
-// Load decisions (now fast - no OWM calls)
-loadDecisionSummary();
-
-// Load forecast last - single OWM call, doesn't block anything
-setTimeout(() => loadForecast("Gacurabwenge"), 100);
+// Run all fast calls in parallel — nothing waits for anything else
+Promise.all([
+  loadCurrentSeason(),
+  loadRecorderStatus(),
+  loadPredictions(),
+  loadDecisionSummary(),
+]);
+// Forecast runs after a tiny delay (single OWM call)
+setTimeout(() => loadForecast(document.getElementById("sel-forecast-sector")?.value || "Gacurabwenge"), 300);
 </script>
 {% endblock %}

@@ -112,33 +112,44 @@ def _fetch_weather(sector: str) -> dict | None:
 
 def record_today() -> dict:
     """
-    Fetch weather for all 12 sectors and save rainfall, tmax, tmin to DB.
-    Returns summary dict.
+    Fetch weather for all 12 sectors concurrently and save to DB.
+    Uses thread pool so all 12 OWM calls happen in parallel (~2s total vs ~12s sequential).
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     today       = date.today().isoformat()
     recorded_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    saved, failed = [], []
+    results     = {}   # {sector: weather_dict or None}
 
+    # Fetch all 12 sectors in parallel (max 6 at a time to avoid rate limiting)
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(_fetch_weather, sector): sector for sector in SECTORS}
+        for future in as_completed(futures):
+            sector = futures[future]
+            try:
+                results[sector] = future.result()
+            except Exception as e:
+                print(f"[recorder] {sector} fetch error: {e}")
+                results[sector] = None
+
+    # Save to DB
+    saved, failed = [], []
     conn = sqlite3.connect(str(DB_PATH))
     c    = conn.cursor()
 
     for sector in SECTORS:
-        w = _fetch_weather(sector)
+        w = results.get(sector)
         if not w:
             failed.append(sector)
-            print(f"[recorder] ❌ {sector}: all 3 attempts failed")
-            time.sleep(0.5)
+            print(f"[recorder] ❌ {sector}: fetch failed")
             continue
-
         try:
             c.execute("""
                 INSERT OR REPLACE INTO daily_records
                   (date, recorded_at, sector, rainfall_mm, temp_max, temp_min)
                 VALUES (?,?,?,?,?,?)
             """, (
-                today,
-                recorded_at,
-                sector,
+                today, recorded_at, sector,
                 round(float(w.get("rain_1h_mm") or 0.0), 2),
                 round(float(w.get("temp_max_c") or 0.0), 2),
                 round(float(w.get("temp_min_c") or 0.0), 2),
@@ -147,8 +158,6 @@ def record_today() -> dict:
         except Exception as e:
             print(f"[recorder] DB write failed for {sector}: {e}")
             failed.append(sector)
-
-        time.sleep(0.3)   # polite delay between sectors
 
     status = "ok" if not failed else ("partial" if saved else "failed")
     c.execute("""
@@ -204,8 +213,9 @@ def start_daily_recorder():
     def _scheduler():
         from datetime import datetime, timezone
 
-        # ── 1. Record immediately on startup ──────────────────────────────
-        print("[recorder] 🚀 Startup — recording all 12 sectors now...")
+        # ── 1. Wait 5 seconds for app to fully start, then record ───────
+        time.sleep(5)
+        print("[recorder] 🚀 Recording all 12 sectors on startup (concurrent)...")
         try:
             record_today()
         except Exception as e:

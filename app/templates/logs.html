@@ -102,6 +102,13 @@ function renderSummary(s){
     </div>`;
 }
 
+function getSectorsOk(l){
+  if(l.sectors_ok !== undefined && l.sectors_ok !== null) return l.sectors_ok;
+  // Parse from message string e.g. "Saved: 12 sectors."
+  if(l.message){ const m = l.message.match(/Saved: (\d+)/); if(m) return m[1]; }
+  return l.status==='ok' ? 12 : 0;
+}
+
 function renderLog(log){
   if(!log || !log.length){
     document.getElementById("log-table").innerHTML =
@@ -119,7 +126,7 @@ function renderLog(log){
       <td class="py-2 pr-4">
         <span class="text-base">${emoji}</span>
         <span class="ml-1 font-semibold ${ok?'text-green-600':partial?'text-yellow-600':'text-red-500'}">
-          ${l.sectors_ok}/12 sectors
+          ${getSectorsOk(l)}/12 sectors
         </span>
       </td>
       <td class="py-2 text-xs text-gray-400">${l.failed_list || '—'}</td>

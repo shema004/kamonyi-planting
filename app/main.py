@@ -70,6 +70,13 @@ def _pred_cache_set(key, data):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
+    # Record on every visit - background thread so page loads instantly
+    import threading
+    def _try_record():
+        from recorder import record_today
+        record_today()
+    threading.Thread(target=_try_record, daemon=True).start()
+
     next_year = datetime.now().year + 1
     return templates.TemplateResponse(request, "index.html", {
         "sectors":      SECTORS,

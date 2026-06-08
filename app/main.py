@@ -360,6 +360,14 @@ async def predictions_vs_actuals(
 
 # ── Health ─────────────────────────────────────────────────────────────────
 
+
+@app.get("/api/test-record")
+async def test_record():
+    """Test endpoint - triggers one recording and returns the result."""
+    from recorder import record_now
+    result = record_now()
+    return result
+
 @app.get("/health")
 async def health():
     summary = get_records_summary()

@@ -50,7 +50,7 @@ SEASON_INFO  = config.SEASON_INFO
 # ── Start recorder & seed DB ───────────────────────────────────────────────
 init_db()
 backfill_actuals_from_excel(MERGED_DF)
-start_daily_recorder()   # persistent hourly scheduler — records every day
+start_scheduler()   # records at startup + 05:00 and 17:00 Rwanda time
 
 
 
@@ -70,12 +70,8 @@ def _pred_cache_set(key, data):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    # Record on every visit - background thread so page loads instantly
-    import threading
-    def _try_record():
-        from recorder import record_today
-        record_today()
-    threading.Thread(target=_try_record, daemon=True).start()
+    # Record on every visit in background — page loads instantly
+    record_in_background()
 
     next_year = datetime.now().year + 1
     return templates.TemplateResponse(request, "index.html", {

@@ -184,24 +184,55 @@ def already_recorded_today() -> bool:
 
 def start_daily_recorder():
     """
-    Launch a persistent background thread.
-    Every hour: check if today is recorded → if not, record now.
-    Runs forever as long as the app is alive.
+    Records immediately on startup, then every day at 05:00 and 17:00 Rwanda time.
+    Rwanda is UTC+2, so scheduled times in UTC are 03:00 and 15:00.
+    Thread runs forever — checks every minute if it's time to record.
     """
+    # Scheduled recording times in UTC (Rwanda UTC+2)
+    RECORD_TIMES_UTC = [
+        (3, 0),   # 05:00 Rwanda time
+        (15, 0),  # 17:00 Rwanda time
+    ]
+
+    def _is_record_time(now_utc):
+        """True if current UTC time matches one of the scheduled times (within 1 min)."""
+        for h, m in RECORD_TIMES_UTC:
+            if now_utc.hour == h and now_utc.minute == m:
+                return True
+        return False
+
     def _scheduler():
+        from datetime import datetime, timezone
+
+        # ── 1. Record immediately on startup ──────────────────────────────
+        print("[recorder] 🚀 Startup — recording all 12 sectors now...")
+        try:
+            record_today()
+        except Exception as e:
+            print(f"[recorder] ❌ Startup record failed: {e}")
+
+        last_recorded_slot = None   # track which slot we last recorded
+
+        # ── 2. Loop forever — check every 60 seconds ──────────────────────
         while True:
+            time.sleep(60)
             try:
-                if not already_recorded_today():
-                    print("[recorder] New day — recording all 12 sectors...")
+                now_utc  = datetime.now(timezone.utc)
+                slot_key = (now_utc.hour, now_utc.minute)   # unique per minute
+
+                if _is_record_time(now_utc) and slot_key != last_recorded_slot:
+                    rw_hour = (now_utc.hour + 2) % 24
+                    print(f"[recorder] 🕐 Scheduled recording at {rw_hour:02d}:00 Rwanda time...")
                     record_today()
+                    last_recorded_slot = slot_key
+
             except Exception as e:
-                print(f"[recorder] ❌ {e}")
+                print(f"[recorder] ❌ Scheduled record failed: {e}")
                 import traceback; traceback.print_exc()
-            time.sleep(3600)   # check again in 1 hour
 
     t = threading.Thread(target=_scheduler, daemon=True, name="daily-recorder")
     t.start()
-    print("[recorder] ✅ Persistent hourly scheduler started")
+    print("[recorder] ✅ Scheduler started — records at startup, 05:00 and 17:00 Rwanda time")
 
 
 # ── Query functions ────────────────────────────────────────────────────────

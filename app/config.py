@@ -1,6 +1,6 @@
 # config.py
 
-OWM_API_KEY = "580989e62b03ca65de1ac9ef370dec9f"
+OWM_API_KEY = "00746cb05cf641c4e8059aa1444b8cd4"
 XLSX_PATH   = None
 
 PLANTING_WINDOW_DAYS  = 10

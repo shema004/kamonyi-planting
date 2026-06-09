@@ -341,11 +341,14 @@ async def daily_records(days: int = Query(30)):
     records = get_all_records(days)
     log     = get_recording_log(days)
     summary = get_records_summary()
+    # Build list of dates that actually have data
+    dates   = sorted(set(r["date"] for r in records), reverse=True)
     return {
         "summary": summary,
         "log":     log,
         "records": records,
         "sectors": SECTORS,
+        "dates":   dates,
     }
 
 

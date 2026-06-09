@@ -69,6 +69,19 @@ def already_recorded_today() -> bool:
         return False
 
 
+def get_recorded_dates() -> list:
+    """Return all distinct dates that have been recorded, newest first."""
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM daily_weather ORDER BY date DESC"
+        ).fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except:
+        return []
+
+
 def record_today(api_key: str) -> dict:
     """
     Fetch today's weather for all sectors and save to the database.
@@ -241,24 +254,58 @@ def get_recorded_summary() -> dict:
 # ── Additional helpers used by main.py ────────────────────────────────────
 
 def get_all_records(days: int = 30) -> list:
-    """Alias used by /api/records/daily endpoint."""
-    return get_recorded_history(limit_days=days)
+    """Return daily records — reads from daily_weather (the active recording table)."""
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        # daily_weather stores: date, sector, temp_max, temp_min, rainfall_mm, humidity, recorded_at
+        rows = conn.execute("""
+            SELECT date,
+                   recorded_at,
+                   sector,
+                   rainfall_mm,
+                   temp_max,
+                   temp_min
+            FROM daily_weather
+            ORDER BY date DESC, sector ASC
+            LIMIT ?
+        """, (days * 12,)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[recorder] get_all_records error: {e}")
+        return []
 
 
 def get_records_summary() -> dict:
-    """Alias used by dashboard recorder panel."""
-    s = get_recorded_summary()
-    # Normalise keys for dashboard JS
-    return {
-        "total_records":       s.get("total_records", 0),
-        "unique_days":         s.get("unique_days", 0),
-        "date_from":           s.get("date_from"),
-        "date_to":             s.get("date_to"),
-        "last_recorded_at":    s.get("last_recorded_at"),
-        "last_sectors_ok":     0,
-        "last_sectors_failed": 0,
-        "last_status":         s.get("last_status"),
-    }
+    """Summary stats from daily_weather (the active recording table)."""
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        c    = conn.cursor()
+        c.execute("SELECT COUNT(*), COUNT(DISTINCT date), MIN(date), MAX(date) FROM daily_weather")
+        total, days, d_from, d_to = c.fetchone()
+        # Get last recording log entry
+        c.execute("SELECT recorded_at, status, message FROM recording_log ORDER BY id DESC LIMIT 1")
+        last = c.fetchone()
+        conn.close()
+        last_ok = 0
+        if last and last[2]:
+            import re
+            m = re.search(r"Saved: (\d+)", last[2])
+            if m: last_ok = int(m.group(1))
+        return {
+            "total_records":       total or 0,
+            "unique_days":         days  or 0,
+            "date_from":           d_from,
+            "date_to":             d_to,
+            "last_recorded_at":    last[0] if last else None,
+            "last_sectors_ok":     last_ok,
+            "last_sectors_failed": 12 - last_ok,
+            "last_status":         last[1] if last else None,
+        }
+    except Exception as e:
+        print(f"[recorder] get_records_summary error: {e}")
+        return {"total_records": 0, "unique_days": 0}
 
 
 # Stubs for seasonal data (used by main.py)

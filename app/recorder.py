@@ -104,7 +104,7 @@ def record_today(api_key: str) -> dict:
                 continue
 
             c.execute("""
-                INSERT OR REPLACE INTO daily_weather
+                INSERT OR IGNORE INTO daily_weather
                     (date, sector, temp_max, temp_min, rainfall_mm, humidity, description, recorded_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (

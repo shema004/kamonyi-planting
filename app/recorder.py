@@ -1,157 +1,101 @@
 """
 recorder.py
 -----------
-Daily weather recorder — stores data in Supabase PostgreSQL.
-Data is permanent and survives all deploys forever.
+Daily weather recorder using SQLite (daily_records.db).
+Database is committed to GitHub so it survives every deploy.
+INSERT OR IGNORE ensures existing data is never overwritten.
 """
 
+import sqlite3
 import time
 import threading
 from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 import sys
-import os
 
 sys.path.insert(0, str(Path(__file__).parent))
 import config
 
-# ── Database connection ────────────────────────────────────────────────────
-
-SUPABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://postgres:0781468728shema@db.mxdrzafnhwpttdiquqjo.supabase.co:6543/postgres"
-)
-
-def get_conn():
-    """Get a Supabase PostgreSQL connection."""
-    import psycopg2
-    return psycopg2.connect(SUPABASE_URL, sslmode="require", connect_timeout=15)
+DB_PATH = Path(config.DATA_DB_PATH)
 
 
-# ── Database setup ─────────────────────────────────────────────────────────
+# ── Database ───────────────────────────────────────────────────────────────
 
 def init_db():
-    """Create tables in Supabase if they don't exist."""
-    try:
-        conn = get_conn()
-        c    = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS daily_weather (
-                id          SERIAL PRIMARY KEY,
-                date        TEXT NOT NULL,
-                sector      TEXT NOT NULL,
-                temp_max    REAL,
-                temp_min    REAL,
-                rainfall_mm REAL,
-                humidity    REAL,
-                description TEXT,
-                recorded_at TEXT NOT NULL,
-                UNIQUE(date, sector)
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS recording_log (
-                id          SERIAL PRIMARY KEY,
-                date        TEXT NOT NULL,
-                status      TEXT NOT NULL,
-                message     TEXT,
-                recorded_at TEXT NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS seasonal_predictions (
-                id                      SERIAL PRIMARY KEY,
-                predicted_at            TEXT NOT NULL,
-                target_year             INTEGER NOT NULL,
-                sector                  TEXT NOT NULL,
-                season                  TEXT NOT NULL,
-                predicted_onset_day     INTEGER,
-                predicted_onset_date    TEXT,
-                predicted_length_dekads REAL,
-                predicted_length_weeks  REAL,
-                predicted_tmax          REAL,
-                predicted_tmin          REAL,
-                predicted_rainfall_mm   REAL,
-                confidence              TEXT,
-                UNIQUE(target_year, sector, season, predicted_at)
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS seasonal_actuals (
-                id                   SERIAL PRIMARY KEY,
-                recorded_at          TEXT NOT NULL,
-                year                 INTEGER NOT NULL,
-                sector               TEXT NOT NULL,
-                season               TEXT NOT NULL,
-                actual_onset_day     INTEGER,
-                actual_onset_date    TEXT,
-                actual_length_dekads REAL,
-                actual_length_weeks  REAL,
-                actual_tmax          REAL,
-                actual_tmin          REAL,
-                actual_rainfall_mm   REAL,
-                data_source          TEXT DEFAULT 'excel',
-                UNIQUE(year, sector, season)
-            )
-        """)
-        conn.commit()
-        conn.close()
-        print("[recorder] ✅ Supabase tables ready")
-    except Exception as e:
-        print(f"[recorder] ⚠️ init_db error: {e}")
-
-
-def migrate_sqlite_to_supabase():
-    """
-    One-time migration: copy all data from SQLite to Supabase.
-    Safe to run multiple times — INSERT OR IGNORE skips existing rows.
-    """
-    import sqlite3
-    from pathlib import Path
-
-    sqlite_path = Path(config.DATA_DB_PATH)
-    if not sqlite_path.exists():
-        print("[recorder] No SQLite DB found — skipping migration")
-        return
-
-    try:
-        sqlite_conn = sqlite3.connect(str(sqlite_path))
-        sqlite_conn.row_factory = sqlite3.Row
-
-        # Migrate daily_weather
-        rows = sqlite_conn.execute("SELECT * FROM daily_weather").fetchall()
-        if rows:
-            pg_conn = get_conn()
-            c = pg_conn.cursor()
-            for r in rows:
-                try:
-                    c.execute("""
-                        INSERT INTO daily_weather
-                            (date, sector, temp_max, temp_min, rainfall_mm,
-                             humidity, description, recorded_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (date, sector) DO NOTHING
-                    """, (r["date"], r["sector"], r["temp_max"], r["temp_min"],
-                          r["rainfall_mm"], r["humidity"], r["description"],
-                          r["recorded_at"]))
-                except:
-                    pass
-            pg_conn.commit()
-            pg_conn.close()
-            print(f"[recorder] ✅ Migrated {len(rows)} rows from SQLite to Supabase")
-
-        sqlite_conn.close()
-    except Exception as e:
-        print(f"[recorder] Migration error: {e}")
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    c    = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS daily_weather (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            date          TEXT NOT NULL,
+            sector        TEXT NOT NULL,
+            temp_max      REAL,
+            temp_min      REAL,
+            rainfall_mm   REAL,
+            humidity      REAL,
+            description   TEXT,
+            recorded_at   TEXT NOT NULL,
+            UNIQUE(date, sector)
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS recording_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL,
+            status      TEXT NOT NULL,
+            message     TEXT,
+            recorded_at TEXT NOT NULL
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS seasonal_actuals (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            recorded_at          TEXT NOT NULL,
+            year                 INTEGER NOT NULL,
+            sector               TEXT NOT NULL,
+            season               TEXT NOT NULL,
+            actual_onset_day     INTEGER,
+            actual_onset_date    TEXT,
+            actual_length_dekads REAL,
+            actual_length_weeks  REAL,
+            actual_tmax          REAL,
+            actual_tmin          REAL,
+            actual_rainfall_mm   REAL,
+            data_source          TEXT DEFAULT 'excel',
+            UNIQUE(year, sector, season)
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS seasonal_predictions (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            predicted_at            TEXT NOT NULL,
+            target_year             INTEGER NOT NULL,
+            sector                  TEXT NOT NULL,
+            season                  TEXT NOT NULL,
+            predicted_onset_day     INTEGER,
+            predicted_onset_date    TEXT,
+            predicted_length_dekads REAL,
+            predicted_length_weeks  REAL,
+            predicted_tmax          REAL,
+            predicted_tmin          REAL,
+            predicted_rainfall_mm   REAL,
+            confidence              TEXT,
+            UNIQUE(target_year, sector, season, predicted_at)
+        )
+    """)
+    conn.commit()
+    conn.close()
+    print(f"[recorder] DB ready: {DB_PATH}")
 
 
 def already_recorded_today() -> bool:
     today = date.today().isoformat()
     try:
-        conn  = get_conn()
-        cur   = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM daily_weather WHERE date=%s", (today,))
-        count = cur.fetchone()[0]
+        conn  = sqlite3.connect(str(DB_PATH))
+        count = conn.execute(
+            "SELECT COUNT(*) FROM daily_weather WHERE date=?", (today,)
+        ).fetchone()[0]
         conn.close()
         return count >= 12
     except:
@@ -161,19 +105,18 @@ def already_recorded_today() -> bool:
 # ── Core recording ─────────────────────────────────────────────────────────
 
 def record_today(api_key: str) -> dict:
-    """Fetch weather for all 12 sectors and save to Supabase."""
+    """
+    Fetch weather for all 12 sectors and save to SQLite.
+    INSERT OR IGNORE — once a day is recorded it is never overwritten.
+    """
     from weather_api import get_current_weather, SECTOR_COORDS
 
     today       = date.today().isoformat()
     recorded_at = datetime.now(timezone.utc).isoformat()
     saved, failed = [], []
 
-    try:
-        conn = get_conn()
-        c    = conn.cursor()
-    except Exception as e:
-        print(f"[recorder] DB connection failed: {e}")
-        return {"date": today, "status": "failed", "saved": [], "failed": list(SECTOR_COORDS.keys()), "message": str(e)}
+    conn = sqlite3.connect(str(DB_PATH))
+    c    = conn.cursor()
 
     for sector in SECTOR_COORDS:
         try:
@@ -182,11 +125,10 @@ def record_today(api_key: str) -> dict:
                 failed.append(sector)
                 continue
             c.execute("""
-                INSERT INTO daily_weather
+                INSERT OR IGNORE INTO daily_weather
                     (date, sector, temp_max, temp_min, rainfall_mm,
                      humidity, description, recorded_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (date, sector) DO NOTHING
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 today, sector,
                 w.get("temp_max_c"),
@@ -209,16 +151,13 @@ def record_today(api_key: str) -> dict:
     if failed:
         message += f" ({', '.join(failed)})"
 
-    try:
-        c.execute(
-            "INSERT INTO recording_log (date,status,message,recorded_at) VALUES (%s,%s,%s,%s)",
-            (today, status, message, recorded_at)
-        )
-        conn.commit()
-    except:
-        pass
-
+    c.execute(
+        "INSERT INTO recording_log (date,status,message,recorded_at) VALUES (?,?,?,?)",
+        (today, status, message, recorded_at)
+    )
+    conn.commit()
     conn.close()
+
     print(f"[recorder] {today}: {message}")
     return {"date": today, "status": status, "saved": saved,
             "failed": failed, "message": message}
@@ -227,6 +166,8 @@ def record_today(api_key: str) -> dict:
 # ── Scheduler ──────────────────────────────────────────────────────────────
 
 def try_record_today(api_key: str):
+    """Record immediately + schedule 05:00 and 17:00 Rwanda time."""
+
     def _run():
         try:
             record_today(api_key)
@@ -268,18 +209,16 @@ def record_in_background():
 def get_all_records(days: int = 30) -> list:
     try:
         cutoff = (date.today() - timedelta(days=days)).isoformat()
-        conn   = get_conn()
-        cur    = conn.cursor()
-        cur.execute("""
+        conn   = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        rows   = conn.execute("""
             SELECT date, recorded_at, sector, rainfall_mm, temp_max, temp_min
             FROM daily_weather
-            WHERE date >= %s
+            WHERE date >= ?
             ORDER BY date DESC, sector ASC
-        """, (cutoff,))
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        """, (cutoff,)).fetchall()
         conn.close()
-        return rows
+        return [dict(r) for r in rows]
     except Exception as e:
         print(f"[recorder] get_all_records: {e}")
         return []
@@ -287,24 +226,23 @@ def get_all_records(days: int = 30) -> list:
 
 def get_recording_log(limit: int = 30) -> list:
     try:
-        conn = get_conn()
-        cur  = conn.cursor()
-        cur.execute("""
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
             SELECT date,
                    MAX(recorded_at)       AS recorded_at,
                    COUNT(DISTINCT sector) AS sectors_ok,
                    (12 - COUNT(DISTINCT sector)) AS sectors_failed,
                    '' AS failed_list,
-                   CASE WHEN COUNT(DISTINCT sector)>=12 THEN 'ok' ELSE 'partial' END AS status
+                   CASE WHEN COUNT(DISTINCT sector)>=12
+                        THEN 'ok' ELSE 'partial' END AS status
             FROM daily_weather
             GROUP BY date
             ORDER BY date DESC
-            LIMIT %s
-        """, (limit,))
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            LIMIT ?
+        """, (limit,)).fetchall()
         conn.close()
-        return rows
+        return [dict(r) for r in rows]
     except Exception as e:
         print(f"[recorder] get_recording_log: {e}")
         return []
@@ -319,21 +257,21 @@ def get_records_summary() -> dict:
         "last_status": None,
     }
     try:
-        conn = get_conn()
-        cur  = conn.cursor()
-        cur.execute("SELECT COUNT(*), COUNT(DISTINCT date), MIN(date), MAX(date) FROM daily_weather")
-        row = cur.fetchone()
+        conn = sqlite3.connect(str(DB_PATH))
+        c    = conn.cursor()
+        c.execute("SELECT COUNT(*), COUNT(DISTINCT date), MIN(date), MAX(date) FROM daily_weather")
+        row = c.fetchone()
         if row:
             result["total_records"] = row[0] or 0
             result["unique_days"]   = row[1] or 0
             result["date_from"]     = row[2]
             result["date_to"]       = row[3]
-        cur.execute("""
+        c.execute("""
             SELECT MAX(recorded_at), COUNT(DISTINCT sector)
             FROM daily_weather
             WHERE date=(SELECT MAX(date) FROM daily_weather)
         """)
-        last = cur.fetchone()
+        last = c.fetchone()
         if last and last[0]:
             result["last_recorded_at"]    = last[0]
             result["last_sectors_ok"]     = last[1] or 0
@@ -357,10 +295,9 @@ def get_recorded_summary():
 
 def backfill_actuals_from_excel(merged_df) -> int:
     import math
-    from datetime import timedelta as td
     count = 0
     try:
-        conn = get_conn()
+        conn = sqlite3.connect(str(DB_PATH))
         c    = conn.cursor()
         now  = datetime.now(timezone.utc).isoformat()
         for _, row in merged_df.iterrows():
@@ -374,17 +311,16 @@ def backfill_actuals_from_excel(merged_df) -> int:
                 onset_day  = int(onset_day) if onset_day else None
                 onset_date = None
                 if onset_day:
-                    d = date(int(row["year"]), 1, 1) + td(days=onset_day-1)
+                    d = date(int(row["year"]), 1, 1) + timedelta(days=onset_day-1)
                     onset_date = d.strftime("%d %b")
                 length_dek = safe(row.get("length_dekads"))
                 length_wks = round(length_dek*10/7,1) if length_dek else None
                 c.execute("""
-                    INSERT INTO seasonal_actuals
+                    INSERT OR IGNORE INTO seasonal_actuals
                       (recorded_at,year,sector,season,actual_onset_day,
                        actual_onset_date,actual_length_dekads,actual_length_weeks,
                        actual_tmax,actual_tmin,actual_rainfall_mm,data_source)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (year,sector,season) DO NOTHING
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (now,int(row["year"]),str(row["sector"]),str(row["season"]),
                       onset_day,onset_date,length_dek,length_wks,
                       safe(row.get("mean_max_temp")),safe(row.get("mean_min_temp")),
@@ -399,17 +335,72 @@ def backfill_actuals_from_excel(merged_df) -> int:
     return count
 
 
+def auto_integrate_recorded_data() -> int:
+    """
+    After 12 months of daily recordings, integrate into seasonal_actuals
+    so the prediction model uses real recorded data — improving accuracy each year.
+    """
+    from collections import defaultdict
+    cutoff = (date.today() - timedelta(days=365)).isoformat()
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        c    = conn.cursor()
+        c.execute("""
+            SELECT date, sector, temp_max, temp_min, rainfall_mm
+            FROM daily_weather WHERE date <= ?
+        """, (cutoff,))
+        rows = c.fetchall()
+        if not rows:
+            conn.close()
+            return 0
+        groups = defaultdict(list)
+        for date_str, sector, tmax, tmin, rain in rows:
+            d   = date.fromisoformat(date_str)
+            doy = d.timetuple().tm_yday
+            yr  = d.year
+            if 32 <= doy <= 181:   season = "B"
+            elif doy >= 244:       season = "A"
+            else:                  continue
+            groups[(yr, season, sector)].append((tmax, tmin, rain))
+        now = datetime.now(timezone.utc).isoformat()
+        integrated = 0
+        for (yr, season, sector), readings in groups.items():
+            tmaxes = [r[0] for r in readings if r[0]]
+            tmins  = [r[1] for r in readings if r[1]]
+            rains  = [r[2] for r in readings if r[2] is not None]
+            if not rains: continue
+            n_dek = round(len(readings)/10, 1)
+            c.execute("""
+                INSERT OR IGNORE INTO seasonal_actuals
+                  (recorded_at,year,sector,season,actual_length_dekads,
+                   actual_length_weeks,actual_tmax,actual_tmin,
+                   actual_rainfall_mm,data_source)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (now, yr, sector, season, n_dek, round(n_dek*10/7,1),
+                  round(sum(tmaxes)/len(tmaxes),2) if tmaxes else None,
+                  round(sum(tmins)/len(tmins),2)   if tmins  else None,
+                  round(sum(rains),1), "recorded_daily"))
+            integrated += 1
+        conn.commit()
+        conn.close()
+        if integrated:
+            print(f"[recorder] Auto-integrated {integrated} seasons from recorded data")
+        return integrated
+    except Exception as e:
+        print(f"[recorder] auto_integrate error: {e}")
+        return 0
+
+
 def save_prediction(prediction: dict) -> bool:
     try:
-        conn = get_conn()
-        conn.cursor().execute("""
-            INSERT INTO seasonal_predictions
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute("""
+            INSERT OR IGNORE INTO seasonal_predictions
               (predicted_at,target_year,sector,season,
                predicted_onset_day,predicted_onset_date,
                predicted_length_dekads,predicted_length_weeks,
                predicted_tmax,predicted_tmin,predicted_rainfall_mm,confidence)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT DO NOTHING
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             datetime.now(timezone.utc).isoformat(),
             prediction.get("target_year"), prediction.get("sector"),
@@ -433,96 +424,42 @@ def save_bulk_predictions(predictions: list) -> int:
 
 
 def get_prediction_vs_actual(sector=None, season=None) -> list:
-    return []
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        wheres, params = [], []
+        if sector: wheres.append("p.sector=?"); params.append(sector)
+        if season: wheres.append("p.season=?"); params.append(season)
+        where = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        rows = conn.execute(f"""
+            SELECT p.target_year AS year, p.sector, p.season,
+                   p.predicted_onset_day, p.predicted_onset_date,
+                   p.predicted_rainfall_mm, p.confidence, p.predicted_at,
+                   a.actual_onset_day, a.actual_rainfall_mm,
+                   (a.actual_onset_day - p.predicted_onset_day) AS onset_error_days
+            FROM seasonal_predictions p
+            JOIN seasonal_actuals a
+              ON p.target_year=a.year AND p.sector=a.sector AND p.season=a.season
+            {where}
+            ORDER BY p.target_year DESC, p.sector, p.season
+        """, params).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[recorder] get_prediction_vs_actual: {e}")
+        return []
 
 
 def get_actuals_summary() -> dict:
     try:
-        conn = get_conn()
-        cur  = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM seasonal_actuals")
-        total = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM seasonal_predictions")
-        preds = cur.fetchone()[0]
+        conn = sqlite3.connect(str(DB_PATH))
+        c    = conn.cursor()
+        c.execute("SELECT COUNT(*), MIN(year), MAX(year) FROM seasonal_actuals")
+        total, y_from, y_to = c.fetchone()
+        c.execute("SELECT COUNT(*) FROM seasonal_predictions")
+        preds = c.fetchone()[0]
         conn.close()
-        return {"total_actuals": total, "total_predictions": preds}
+        return {"total_actuals": total or 0, "year_from": y_from,
+                "year_to": y_to, "total_predictions": preds or 0}
     except:
         return {"total_actuals": 0, "total_predictions": 0}
-
-
-def auto_integrate_recorded_data() -> int:
-    """
-    After 12 months of daily recordings, automatically integrate
-    recorded weather into seasonal_actuals so the model uses it
-    for future predictions — making predictions more accurate every year.
-    Runs at every startup. Safe to run multiple times (ON CONFLICT DO NOTHING).
-    """
-    from collections import defaultdict
-    cutoff = (date.today() - timedelta(days=365)).isoformat()
-
-    try:
-        conn = get_conn()
-        cur  = conn.cursor()
-
-        # Get all daily recordings older than 12 months not yet integrated
-        cur.execute("""
-            SELECT date, sector, temp_max, temp_min, rainfall_mm
-            FROM daily_weather
-            WHERE date <= %s
-            ORDER BY date
-        """, (cutoff,))
-        rows = cur.fetchall()
-
-        if not rows:
-            conn.close()
-            return 0
-
-        # Group by year + season + sector
-        groups = defaultdict(list)
-        for date_str, sector, tmax, tmin, rain in rows:
-            d   = date.fromisoformat(date_str)
-            doy = d.timetuple().tm_yday
-            yr  = d.year
-            # Assign season by day of year
-            if 32 <= doy <= 181:   season = "B"
-            elif doy >= 244:       season = "A"
-            else:                  continue  # skip transition periods
-            groups[(yr, season, sector)].append((tmax, tmin, rain))
-
-        now        = datetime.now(timezone.utc).isoformat()
-        integrated = 0
-
-        for (yr, season, sector), readings in groups.items():
-            tmaxes = [r[0] for r in readings if r[0] is not None]
-            tmins  = [r[1] for r in readings if r[1] is not None]
-            rains  = [r[2] for r in readings if r[2] is not None]
-            if not rains: continue
-
-            n_dek     = round(len(readings) / 10, 1)
-            avg_tmax  = round(sum(tmaxes)/len(tmaxes), 2) if tmaxes else None
-            avg_tmin  = round(sum(tmins)/len(tmins),   2) if tmins  else None
-            total_rain= round(sum(rains), 1)
-
-            cur.execute("""
-                INSERT INTO seasonal_actuals
-                  (recorded_at, year, sector, season,
-                   actual_length_dekads, actual_length_weeks,
-                   actual_tmax, actual_tmin, actual_rainfall_mm, data_source)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (year, sector, season) DO NOTHING
-            """, (now, yr, sector, season,
-                  n_dek, round(n_dek*10/7, 1),
-                  avg_tmax, avg_tmin, total_rain, "recorded_daily"))
-            integrated += 1
-
-        conn.commit()
-        conn.close()
-
-        if integrated:
-            print(f"[recorder] ✅ Auto-integrated {integrated} seasons from recorded data into model")
-        return integrated
-
-    except Exception as e:
-        print(f"[recorder] auto_integrate error: {e}")
-        return 0
-

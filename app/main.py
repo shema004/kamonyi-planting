@@ -16,7 +16,8 @@ from model          import PlantingModel
 from weather_api    import (get_forecast_summary, get_all_sectors_forecast,
                              get_7day_forecast, get_current_weather, SECTOR_COORDS)
 from crops          import suggest_crops_for_prediction
-from recorder       import (init_db, migrate_sqlite_to_supabase, start_scheduler, record_in_background,
+from recorder       import (init_db, auto_integrate_recorded_data,
+                             start_scheduler, record_in_background,
                              backfill_actuals_from_excel, save_bulk_predictions,
                              get_prediction_vs_actual, get_actuals_summary,
                              get_all_records, get_recording_log, get_records_summary)
@@ -49,9 +50,9 @@ SEASON_INFO  = config.SEASON_INFO
 
 # ── Start recorder & seed DB ───────────────────────────────────────────────
 init_db()
-migrate_sqlite_to_supabase()   # one-time migration from SQLite to Supabase
-backfill_actuals_from_excel(MERGED_DF)
-start_scheduler()   # records at startup + 05:00 and 17:00 Rwanda time
+backfill_actuals_from_excel(MERGED_DF)  # seeds 25 years of Excel history
+auto_integrate_recorded_data()          # integrates 12+ months of recordings into model
+start_scheduler()                       # records at startup + 05:00 and 17:00 Rwanda time   # records at startup + 05:00 and 17:00 Rwanda time
 
 
 

@@ -116,8 +116,8 @@ function renderLog(log){
     return;
   }
   const rows = log.map(l => {
-    const ok = l.status === 'ok';
-    const partial = l.status === 'partial';
+    const ok = (l.sectors_ok >= 12);
+    const partial = (l.sectors_ok > 0 && l.sectors_ok < 12);
     const emoji = ok ? '✅' : partial ? '⚠️' : '❌';
     const bg = ok ? '' : partial ? 'bg-yellow-50' : 'bg-red-50';
     return `<tr class="border-b ${bg} hover:bg-gray-50">
@@ -126,7 +126,7 @@ function renderLog(log){
       <td class="py-2 pr-4">
         <span class="text-base">${emoji}</span>
         <span class="ml-1 font-semibold ${ok?'text-green-600':partial?'text-yellow-600':'text-red-500'}">
-          ${getSectorsOk(l)}/12 sectors
+          ${l.sectors_ok}/12 sectors
         </span>
       </td>
       <td class="py-2 text-xs text-gray-400">${l.failed_list || '—'}</td>

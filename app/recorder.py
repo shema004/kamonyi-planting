@@ -208,18 +208,32 @@ def get_recorded_history(sector: str = None, limit_days: int = 365) -> list:
 
 
 def get_recording_log(limit: int = 30) -> list:
+    """Return one entry per day — the best recording for that day."""
     try:
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute("""
-            SELECT date, status, message, recorded_at
-            FROM recording_log ORDER BY id DESC LIMIT ?
-        """, (limit,))
-        rows = [dict(r) for r in c.fetchall()]
+        # Get the best (most sectors saved) recording per day
+        rows = conn.execute("""
+            SELECT date,
+                   recorded_at,
+                   status,
+                   message,
+                   COUNT(DISTINCT sector) AS sectors_ok
+            FROM daily_weather
+            GROUP BY date
+            ORDER BY date DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
         conn.close()
-        return rows
-    except:
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["sectors_failed"] = 12 - d["sectors_ok"]
+            d["failed_list"]    = ""
+            result.append(d)
+        return result
+    except Exception as e:
+        print(f"[recorder] get_recording_log error: {e}")
         return []
 
 
@@ -254,12 +268,13 @@ def get_recorded_summary() -> dict:
 # ── Additional helpers used by main.py ────────────────────────────────────
 
 def get_all_records(days: int = 30) -> list:
-    """Return daily records — reads from daily_weather (the active recording table)."""
+    """Return all daily records within the last N days — one row per sector per date."""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
+        from datetime import timedelta
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        conn   = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
-        # daily_weather stores: date, sector, temp_max, temp_min, rainfall_mm, humidity, recorded_at
-        rows = conn.execute("""
+        rows   = conn.execute("""
             SELECT date,
                    recorded_at,
                    sector,
@@ -267,9 +282,9 @@ def get_all_records(days: int = 30) -> list:
                    temp_max,
                    temp_min
             FROM daily_weather
+            WHERE date >= ?
             ORDER BY date DESC, sector ASC
-            LIMIT ?
-        """, (days * 12,)).fetchall()
+        """, (cutoff,)).fetchall()
         conn.close()
         return [dict(r) for r in rows]
     except Exception as e:

@@ -294,33 +294,44 @@ def get_all_records(days: int = 30) -> list:
 
 def get_records_summary() -> dict:
     """Summary stats from daily_weather (the active recording table)."""
+    result = {
+        "total_records":       0,
+        "unique_days":         0,
+        "date_from":           None,
+        "date_to":             None,
+        "last_recorded_at":    None,
+        "last_sectors_ok":     0,
+        "last_sectors_failed": 0,
+        "last_status":         None,
+    }
     try:
         conn = sqlite3.connect(str(DB_PATH))
         c    = conn.cursor()
+        # Stats from daily_weather
         c.execute("SELECT COUNT(*), COUNT(DISTINCT date), MIN(date), MAX(date) FROM daily_weather")
-        total, days, d_from, d_to = c.fetchone()
-        # Get last recording log entry
-        c.execute("SELECT recorded_at, status, message FROM recording_log ORDER BY id DESC LIMIT 1")
+        row = c.fetchone()
+        if row:
+            result["total_records"] = row[0] or 0
+            result["unique_days"]   = row[1] or 0
+            result["date_from"]     = row[2]
+            result["date_to"]       = row[3]
+        # Last recording: most recent date in daily_weather
+        c.execute("""
+            SELECT date, MAX(recorded_at), COUNT(DISTINCT sector)
+            FROM daily_weather
+            GROUP BY date
+            ORDER BY date DESC LIMIT 1
+        """)
         last = c.fetchone()
+        if last:
+            result["last_recorded_at"]    = last[1]
+            result["last_sectors_ok"]     = last[2] or 0
+            result["last_sectors_failed"] = 12 - (last[2] or 0)
+            result["last_status"]         = "ok" if (last[2] or 0) >= 12 else "partial"
         conn.close()
-        last_ok = 0
-        if last and last[2]:
-            import re
-            m = re.search(r"Saved: (\d+)", last[2])
-            if m: last_ok = int(m.group(1))
-        return {
-            "total_records":       total or 0,
-            "unique_days":         days  or 0,
-            "date_from":           d_from,
-            "date_to":             d_to,
-            "last_recorded_at":    last[0] if last else None,
-            "last_sectors_ok":     last_ok,
-            "last_sectors_failed": 12 - last_ok,
-            "last_status":         last[1] if last else None,
-        }
     except Exception as e:
         print(f"[recorder] get_records_summary error: {e}")
-        return {"total_records": 0, "unique_days": 0}
+    return result
 
 
 # Stubs for seasonal data (used by main.py)

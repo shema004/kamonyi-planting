@@ -19,7 +19,7 @@ import config
 
 SUPABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:0781468728shema@db.mxdrzafnhwpttdiquqjo.supabase.co:5432/postgres"
+    "postgresql://postgres:0781468728shema@db.mxdrzafnhwpttdiquqjo.supabase.co:6543/postgres"
 )
 
 def get_conn():
@@ -448,3 +448,81 @@ def get_actuals_summary() -> dict:
         return {"total_actuals": total, "total_predictions": preds}
     except:
         return {"total_actuals": 0, "total_predictions": 0}
+
+
+def auto_integrate_recorded_data() -> int:
+    """
+    After 12 months of daily recordings, automatically integrate
+    recorded weather into seasonal_actuals so the model uses it
+    for future predictions — making predictions more accurate every year.
+    Runs at every startup. Safe to run multiple times (ON CONFLICT DO NOTHING).
+    """
+    from collections import defaultdict
+    cutoff = (date.today() - timedelta(days=365)).isoformat()
+
+    try:
+        conn = get_conn()
+        cur  = conn.cursor()
+
+        # Get all daily recordings older than 12 months not yet integrated
+        cur.execute("""
+            SELECT date, sector, temp_max, temp_min, rainfall_mm
+            FROM daily_weather
+            WHERE date <= %s
+            ORDER BY date
+        """, (cutoff,))
+        rows = cur.fetchall()
+
+        if not rows:
+            conn.close()
+            return 0
+
+        # Group by year + season + sector
+        groups = defaultdict(list)
+        for date_str, sector, tmax, tmin, rain in rows:
+            d   = date.fromisoformat(date_str)
+            doy = d.timetuple().tm_yday
+            yr  = d.year
+            # Assign season by day of year
+            if 32 <= doy <= 181:   season = "B"
+            elif doy >= 244:       season = "A"
+            else:                  continue  # skip transition periods
+            groups[(yr, season, sector)].append((tmax, tmin, rain))
+
+        now        = datetime.now(timezone.utc).isoformat()
+        integrated = 0
+
+        for (yr, season, sector), readings in groups.items():
+            tmaxes = [r[0] for r in readings if r[0] is not None]
+            tmins  = [r[1] for r in readings if r[1] is not None]
+            rains  = [r[2] for r in readings if r[2] is not None]
+            if not rains: continue
+
+            n_dek     = round(len(readings) / 10, 1)
+            avg_tmax  = round(sum(tmaxes)/len(tmaxes), 2) if tmaxes else None
+            avg_tmin  = round(sum(tmins)/len(tmins),   2) if tmins  else None
+            total_rain= round(sum(rains), 1)
+
+            cur.execute("""
+                INSERT INTO seasonal_actuals
+                  (recorded_at, year, sector, season,
+                   actual_length_dekads, actual_length_weeks,
+                   actual_tmax, actual_tmin, actual_rainfall_mm, data_source)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (year, sector, season) DO NOTHING
+            """, (now, yr, sector, season,
+                  n_dek, round(n_dek*10/7, 1),
+                  avg_tmax, avg_tmin, total_rain, "recorded_daily"))
+            integrated += 1
+
+        conn.commit()
+        conn.close()
+
+        if integrated:
+            print(f"[recorder] ✅ Auto-integrated {integrated} seasons from recorded data into model")
+        return integrated
+
+    except Exception as e:
+        print(f"[recorder] auto_integrate error: {e}")
+        return 0
+

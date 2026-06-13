@@ -23,6 +23,7 @@ from recorder       import (init_db, auto_integrate_recorded_data,
                              get_all_records, get_recording_log, get_records_summary)
 from season_status  import get_current_season_status
 from decision_engine import make_planting_decision, make_all_sector_decisions
+import sqlite3
 import config
 
 # ── App setup ──────────────────────────────────────────────────────────────
@@ -372,6 +373,76 @@ async def test_record():
     from recorder import record_now
     result = record_now()
     return result
+
+
+@app.get("/api/download-db")
+async def download_db():
+    """Download the live database file directly."""
+    from fastapi.responses import FileResponse
+    import os
+    db_path = str(Path(config.DATA_DB_PATH))
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Database not found")
+    return FileResponse(
+        path=db_path,
+        filename="daily_records.db",
+        media_type="application/octet-stream"
+    )
+
+
+@app.get("/api/download-db")
+async def download_db():
+    """Download the live database file directly."""
+    from fastapi.responses import FileResponse
+    import os
+    db_path = str(Path(config.DATA_DB_PATH))
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Database not found")
+    return FileResponse(
+        path=db_path,
+        filename="daily_records.db",
+        media_type="application/octet-stream"
+    )
+
+
+@app.get("/api/records/download")
+async def download_records_csv(
+    date_from: str = Query(..., description="Start date YYYY-MM-DD"),
+    date_to:   str = Query(..., description="End date YYYY-MM-DD"),
+):
+    """Download recorded weather data as CSV for a date range."""
+    import csv, io
+    from fastapi.responses import StreamingResponse
+
+    try:
+        conn = sqlite3.connect(str(Path(config.DATA_DB_PATH)))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT date, sector, rainfall_mm, temp_max, temp_min, recorded_at
+            FROM daily_weather
+            WHERE date >= ? AND date <= ?
+            ORDER BY date ASC, sector ASC
+        """, (date_from, date_to)).fetchall()
+        conn.close()
+
+        # Build CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Date", "Sector", "Rainfall (mm)", "Max Temp (°C)", "Min Temp (°C)", "Recorded At"])
+        for r in rows:
+            writer.writerow([r["date"], r["sector"],
+                             r["rainfall_mm"], r["temp_max"], r["temp_min"],
+                             r["recorded_at"]])
+
+        output.seek(0)
+        filename = f"kamonyi_weather_{date_from}_to_{date_to}.csv"
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode()),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health():

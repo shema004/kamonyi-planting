@@ -25,6 +25,33 @@
   <div id="log-table"><div class="flex justify-center py-4"><div class="spinner"></div></div></div>
 </div>
 
+<!-- CSV Download -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-8">
+  <div class="flex items-center justify-between flex-wrap gap-4">
+    <div>
+      <h2 class="font-semibold text-gray-700">📥 Download Data as CSV</h2>
+      <p class="text-xs text-gray-400 mt-0.5">Select a date range and download all recorded weather data</p>
+    </div>
+    <div class="flex items-center gap-3 flex-wrap">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">From</label>
+        <input type="date" id="dl-from" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">To</label>
+        <input type="date" id="dl-to" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+      </div>
+      <div class="mt-4">
+        <button onclick="downloadCSV()"
+          class="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition">
+          ⬇ Download CSV
+        </button>
+      </div>
+    </div>
+  </div>
+  <div id="dl-msg" class="mt-2 text-xs text-gray-400"></div>
+</div>
+
 <!-- Daily records table -->
 <div class="bg-white rounded-2xl shadow-md p-5">
   <div class="flex items-center justify-between mb-4">
@@ -239,6 +266,33 @@ function renderTable(records, sectors){
       <span>${dates.length} days · ${records.length} records total</span>
     </div>`;
 }
+
+
+function downloadCSV(){
+  const from = document.getElementById("dl-from").value;
+  const to   = document.getElementById("dl-to").value;
+  if(!from || !to){
+    document.getElementById("dl-msg").innerHTML =
+      '<span class="text-red-500">Please select both dates.</span>';
+    return;
+  }
+  if(from > to){
+    document.getElementById("dl-msg").innerHTML =
+      '<span class="text-red-500">Start date must be before end date.</span>';
+    return;
+  }
+  document.getElementById("dl-msg").innerHTML =
+    '<span class="text-green-600">Downloading...</span>';
+  window.location.href = `/api/records/download?date_from=${from}&date_to=${to}`;
+  setTimeout(() => document.getElementById("dl-msg").innerHTML = "", 3000);
+}
+
+// Set default dates: from = first recording, to = today
+document.addEventListener("DOMContentLoaded", function(){
+  const today = new Date().toISOString().split("T")[0];
+  document.getElementById("dl-to").value = today;
+  document.getElementById("dl-from").value = "2026-06-02";
+});
 
 // Load on page open
 document.addEventListener("DOMContentLoaded", loadData);

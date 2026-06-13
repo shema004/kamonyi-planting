@@ -444,6 +444,18 @@ async def download_records_csv(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/test-hourly")
+async def test_hourly():
+    """Trigger hourly recording and finalize daily record right now."""
+    from recorder import record_hourly, finalize_daily_record
+    import threading
+    def _run():
+        record_hourly(config.OWM_API_KEY)
+        finalize_daily_record(config.OWM_API_KEY)
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "triggered", "message": "Hourly record + daily finalize started"}
+
 @app.get("/health")
 async def health():
     summary = get_records_summary()

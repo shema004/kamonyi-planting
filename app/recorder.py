@@ -159,9 +159,103 @@ def record_today(api_key: str) -> dict:
     conn.close()
 
     print(f"[recorder] {today}: {message}")
+
+    # Push DB to GitHub so data survives restarts and redeploys
+    if saved:
+        _push_db_to_github()
+
     return {"date": today, "status": status, "saved": saved,
             "failed": failed, "message": message}
 
+
+
+
+def _push_db_to_github():
+    """
+    After every recording:
+    1. Download GitHub DB
+    2. Merge ALL records from GitHub into local DB (so nothing is lost)
+    3. Push the merged DB back to GitHub
+    This guarantees GitHub always has the MOST records, never fewer.
+    """
+    import base64, requests, tempfile, os
+
+    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    if not GITHUB_TOKEN:
+        print("[recorder] ⚠️ GITHUB_TOKEN not set — skipping DB push")
+        return
+    REPO         = "shema004/kamonyi-planting"
+    FILE_PATH    = "data/daily_records.db"
+    API_URL      = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
+
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    try:
+        # Step 1: Download the GitHub version of the DB
+        r = requests.get(API_URL, headers=headers, timeout=10)
+        sha = None
+        if r.status_code == 200:
+            data        = r.json()
+            sha         = data.get("sha")
+            github_bytes= base64.b64decode(data["content"])
+
+            # Save GitHub DB to a temp file
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+            tmp.write(github_bytes)
+            tmp.close()
+
+            # Step 2: Merge GitHub records INTO local DB
+            # (copy any rows from GitHub that local doesn't have)
+            github_conn = sqlite3.connect(tmp.name)
+            local_conn  = sqlite3.connect(str(DB_PATH))
+
+            github_rows = github_conn.execute(
+                "SELECT date, sector, temp_max, temp_min, rainfall_mm, humidity, description, recorded_at FROM daily_weather"
+            ).fetchall()
+
+            for row in github_rows:
+                try:
+                    local_conn.execute("""
+                        INSERT OR IGNORE INTO daily_weather
+                            (date, sector, temp_max, temp_min, rainfall_mm, humidity, description, recorded_at)
+                        VALUES (?,?,?,?,?,?,?,?)
+                    """, row)
+                except: pass
+
+            local_conn.commit()
+            local_conn.close()
+            github_conn.close()
+            os.unlink(tmp.name)
+
+            print(f"[recorder] Merged GitHub records into local DB")
+
+        # Step 3: Push the merged local DB to GitHub
+        with open(str(DB_PATH), "rb") as f:
+            db_content = base64.b64encode(f.read()).decode("utf-8")
+
+        payload = {
+            "message": f"Auto-backup DB {date.today().isoformat()}",
+            "content": db_content,
+        }
+        if sha:
+            payload["sha"] = sha
+
+        r = requests.put(API_URL, headers=headers, json=payload, timeout=30)
+
+        if r.status_code in (200, 201):
+            # Count total dates now in DB
+            conn   = sqlite3.connect(str(DB_PATH))
+            dates  = conn.execute("SELECT COUNT(DISTINCT date) FROM daily_weather").fetchone()[0]
+            conn.close()
+            print(f"[recorder] ✅ DB pushed to GitHub — {dates} dates total")
+        else:
+            print(f"[recorder] ⚠️ GitHub push failed: {r.status_code} {r.text[:100]}")
+
+    except Exception as e:
+        print(f"[recorder] ⚠️ GitHub push error: {e}")
 
 # ── Scheduler ──────────────────────────────────────────────────────────────
 

@@ -287,38 +287,63 @@ def _push_db_to_github():
 # ── Scheduler ──────────────────────────────────────────────────────────────
 
 def record_hourly(api_key: str):
-    """Record current temp and rainfall for all 12 sectors into hourly_readings."""
-    from weather_api import get_current_weather, SECTOR_COORDS
+    """
+    Record today's forecast (real max/min/rain) for all 12 sectors.
+    Uses INSERT OR REPLACE so every refresh shows the latest forecast values.
+    At 11:55 PM this is replaced by the finalized true daily summary.
+    """
+    from weather_api import get_7day_forecast, SECTOR_COORDS
     now_utc     = datetime.now(timezone.utc)
-    # Rwanda = UTC+2
-    now_rw      = now_utc.hour + 2
-    if now_rw >= 24: now_rw -= 24
+    now_rw      = (now_utc.hour + 2) % 24
     today       = date.today().isoformat()
     recorded_at = now_utc.isoformat()
     saved = []
 
     conn = sqlite3.connect(str(DB_PATH))
     c    = conn.cursor()
+
     for sector in SECTOR_COORDS:
         try:
-            w = get_current_weather(api_key, sector)
-            if not w: continue
+            w = get_7day_forecast(api_key, sector)
+            if not w or not w.get("days"): continue
+
+            # Get today's forecast
+            today_fc = next((d for d in w["days"] if d["date"] == today), None)
+            if not today_fc: today_fc = w["days"][0]
+
+            # INSERT OR REPLACE — updates today's record on every visit
+            c.execute("""
+                INSERT OR REPLACE INTO daily_weather
+                    (date, sector, temp_max, temp_min, rainfall_mm,
+                     humidity, description, recorded_at)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                today, sector,
+                today_fc.get("max_temp_c"),
+                today_fc.get("min_temp_c"),
+                today_fc.get("total_rain_mm", 0.0),
+                today_fc.get("mean_humidity"),
+                today_fc.get("description", ""),
+                recorded_at,
+            ))
+            # Also store in hourly_readings for finalization
             c.execute("""
                 INSERT OR IGNORE INTO hourly_readings
                     (date, hour, sector, temp_c, rainfall_mm, recorded_at)
                 VALUES (?,?,?,?,?,?)
             """, (
                 today, now_rw, sector,
-                w.get("temp_c"),
-                w.get("rain_1h_mm", 0.0),
+                today_fc.get("max_temp_c"),
+                today_fc.get("total_rain_mm", 0.0),
                 recorded_at,
             ))
             saved.append(sector)
         except Exception as e:
             print(f"[recorder] hourly {sector}: {e}")
+
     conn.commit()
     conn.close()
-    print(f"[recorder] Hourly {now_rw:02d}:00 Rwanda — {len(saved)}/12 sectors")
+    print(f"[recorder] Hourly update {now_rw:02d}:00 Rwanda — {len(saved)}/12 sectors")
     return saved
 
 

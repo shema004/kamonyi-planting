@@ -295,7 +295,9 @@ def record_hourly(api_key: str):
     from weather_api import get_7day_forecast, SECTOR_COORDS
     now_utc     = datetime.now(timezone.utc)
     now_rw      = (now_utc.hour + 2) % 24
-    today       = date.today().isoformat()
+    # Use Rwanda date (UTC+2)
+    from datetime import timedelta
+    today       = (now_utc + timedelta(hours=2)).date().isoformat()
     recorded_at = now_utc.isoformat()
     saved = []
 
@@ -307,9 +309,8 @@ def record_hourly(api_key: str):
             w = get_7day_forecast(api_key, sector)
             if not w or not w.get("days"): continue
 
-            # Get today's forecast
-            today_fc = next((d for d in w["days"] if d["date"] == today), None)
-            if not today_fc: today_fc = w["days"][0]
+            # Always use first day — most current forecast data
+            today_fc = w["days"][0]
 
             # INSERT OR REPLACE — updates today's record on every visit
             c.execute("""

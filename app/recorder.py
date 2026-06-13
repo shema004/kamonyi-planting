@@ -84,6 +84,19 @@ def init_db():
             UNIQUE(target_year, sector, season, predicted_at)
         )
     """)
+    # Hourly readings table — stores every hourly snapshot
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS hourly_readings (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL,
+            hour        INTEGER NOT NULL,
+            sector      TEXT NOT NULL,
+            temp_c      REAL,
+            rainfall_mm REAL,
+            recorded_at TEXT NOT NULL,
+            UNIQUE(date, hour, sector)
+        )
+    """)
     conn.commit()
     conn.close()
     print(f"[recorder] DB ready: {DB_PATH}")
@@ -109,7 +122,7 @@ def record_today(api_key: str) -> dict:
     Fetch weather for all 12 sectors and save to SQLite.
     INSERT OR IGNORE — once a day is recorded it is never overwritten.
     """
-    from weather_api import get_current_weather, SECTOR_COORDS
+    from weather_api import get_current_weather, get_7day_forecast, SECTOR_COORDS
 
     today       = date.today().isoformat()
     recorded_at = datetime.now(timezone.utc).isoformat()
@@ -120,10 +133,24 @@ def record_today(api_key: str) -> dict:
 
     for sector in SECTOR_COORDS:
         try:
-            w = get_current_weather(api_key, sector)
-            if not w:
+            # Use forecast endpoint — gives real daily max/min temps
+            from weather_api import get_7day_forecast
+            w = get_7day_forecast(api_key, sector)
+            if not w or not w.get("days"):
                 failed.append(sector)
                 continue
+
+            # Get today's forecast data
+            today_forecast = None
+            for day in w["days"]:
+                if day["date"] == today:
+                    today_forecast = day
+                    break
+
+            # Fall back to first day if today not found
+            if not today_forecast:
+                today_forecast = w["days"][0]
+
             c.execute("""
                 INSERT OR IGNORE INTO daily_weather
                     (date, sector, temp_max, temp_min, rainfall_mm,
@@ -131,11 +158,11 @@ def record_today(api_key: str) -> dict:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 today, sector,
-                w.get("temp_max_c"),
-                w.get("temp_min_c"),
-                w.get("rain_1h_mm", 0.0),
-                w.get("humidity_pct"),
-                w.get("description", ""),
+                today_forecast.get("max_temp_c"),
+                today_forecast.get("min_temp_c"),
+                today_forecast.get("total_rain_mm", 0.0),
+                today_forecast.get("mean_humidity"),
+                today_forecast.get("description", ""),
                 recorded_at,
             ))
             saved.append(sector)
@@ -259,30 +286,140 @@ def _push_db_to_github():
 
 # ── Scheduler ──────────────────────────────────────────────────────────────
 
-def try_record_today(api_key: str):
-    """Record immediately + schedule 05:00 and 17:00 Rwanda time."""
+def record_hourly(api_key: str):
+    """Record current temp and rainfall for all 12 sectors into hourly_readings."""
+    from weather_api import get_current_weather, SECTOR_COORDS
+    now_utc     = datetime.now(timezone.utc)
+    # Rwanda = UTC+2
+    now_rw      = now_utc.hour + 2
+    if now_rw >= 24: now_rw -= 24
+    today       = date.today().isoformat()
+    recorded_at = now_utc.isoformat()
+    saved = []
 
-    def _run():
+    conn = sqlite3.connect(str(DB_PATH))
+    c    = conn.cursor()
+    for sector in SECTOR_COORDS:
         try:
-            record_today(api_key)
+            w = get_current_weather(api_key, sector)
+            if not w: continue
+            c.execute("""
+                INSERT OR IGNORE INTO hourly_readings
+                    (date, hour, sector, temp_c, rainfall_mm, recorded_at)
+                VALUES (?,?,?,?,?,?)
+            """, (
+                today, now_rw, sector,
+                w.get("temp_c"),
+                w.get("rain_1h_mm", 0.0),
+                recorded_at,
+            ))
+            saved.append(sector)
         except Exception as e:
-            print(f"[recorder] record failed: {e}")
+            print(f"[recorder] hourly {sector}: {e}")
+    conn.commit()
+    conn.close()
+    print(f"[recorder] Hourly {now_rw:02d}:00 Rwanda — {len(saved)}/12 sectors")
+    return saved
+
+
+def finalize_daily_record(api_key: str):
+    """
+    At 11:55 PM Rwanda time — calculate true daily max, min, total rainfall
+    from all hourly readings and write final record to daily_weather.
+    """
+    today = date.today().isoformat()
+    recorded_at = datetime.now(timezone.utc).isoformat()
+    saved, failed = [], []
+
+    conn = sqlite3.connect(str(DB_PATH))
+    c    = conn.cursor()
+
+    from weather_api import SECTOR_COORDS
+    for sector in SECTOR_COORDS:
+        try:
+            # Get all hourly readings for today for this sector
+            rows = c.execute("""
+                SELECT temp_c, rainfall_mm FROM hourly_readings
+                WHERE date=? AND sector=?
+            """, (today, sector)).fetchall()
+
+            if not rows:
+                failed.append(sector)
+                continue
+
+            temps   = [r[0] for r in rows if r[0] is not None]
+            rains   = [r[1] for r in rows if r[1] is not None]
+
+            temp_max     = round(max(temps), 2)    if temps else None
+            temp_min     = round(min(temps), 2)    if temps else None
+            total_rain   = round(sum(rains), 2)    if rains else 0.0
+
+            # Write final daily record — INSERT OR REPLACE to update if exists
+            c.execute("""
+                INSERT OR REPLACE INTO daily_weather
+                    (date, sector, temp_max, temp_min, rainfall_mm,
+                     humidity, description, recorded_at)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (today, sector, temp_max, temp_min, total_rain,
+                  None, "daily_summary", recorded_at))
+            saved.append(sector)
+        except Exception as e:
+            print(f"[recorder] finalize {sector}: {e}")
+            failed.append(sector)
+
+    conn.commit()
+
+    status  = "ok" if saved and not failed else ("partial" if saved else "failed")
+    message = f"Daily summary: {len(saved)} sectors. Max/Min/Rain calculated from hourly data."
+    c.execute(
+        "INSERT INTO recording_log (date,status,message,recorded_at) VALUES (?,?,?,?)",
+        (today, status, message, recorded_at)
+    )
+    conn.commit()
+    conn.close()
+
+    print(f"[recorder] ✅ Daily summary saved for {today}: {len(saved)}/12 sectors")
+
+    if saved:
+        _push_db_to_github()
+
+    return {"date": today, "status": status, "saved": saved, "failed": failed}
+
+
+def try_record_today(api_key: str):
+    """
+    Hourly scheduler:
+    - Every hour: record temp + rainfall snapshot into hourly_readings
+    - At 11:55 PM Rwanda time: finalize daily record (true max, min, total rain)
+    """
 
     def _scheduler():
-        _run()
-        SCHEDULED_UTC = {(3, 0), (15, 0)}
-        last_slot = None
+        # Record immediately on startup
+        record_hourly(api_key)
+
+        FINALIZE_SLOT = (21, 55)  # 11:55 PM Rwanda = 21:55 UTC
+        last_hour     = None
+        last_finalize = None
+
         while True:
             time.sleep(60)
-            now  = datetime.now(timezone.utc)
-            slot = (now.hour, now.minute)
-            if slot in SCHEDULED_UTC and slot != last_slot:
-                rw = (now.hour + 2) % 24
-                print(f"[recorder] Scheduled recording at {rw:02d}:00 Rwanda time")
-                _run()
-                last_slot = slot
+            now_utc  = datetime.now(timezone.utc)
+            hour_utc = now_utc.hour
+            slot     = (now_utc.hour, now_utc.minute)
+
+            # Record every hour
+            if hour_utc != last_hour:
+                record_hourly(api_key)
+                last_hour = hour_utc
+
+            # Finalize at 11:55 PM Rwanda (21:55 UTC)
+            if slot == FINALIZE_SLOT and date.today().isoformat() != last_finalize:
+                print("[recorder] 🌙 11:55 PM Rwanda — finalizing daily record...")
+                finalize_daily_record(api_key)
+                last_finalize = date.today().isoformat()
 
     threading.Thread(target=_scheduler, daemon=True, name="recorder").start()
+    print("[recorder] Hourly scheduler started — finalizes at 11:55 PM Rwanda time")
 
 
 def start_scheduler():

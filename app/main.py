@@ -447,14 +447,15 @@ async def download_records_csv(
 
 @app.get("/api/test-hourly")
 async def test_hourly():
-    """Trigger hourly recording and finalize daily record right now."""
+    """Trigger hourly recording and finalize daily record — returns actual result."""
     from recorder import record_hourly, finalize_daily_record
-    import threading
-    def _run():
-        record_hourly(config.OWM_API_KEY)
-        finalize_daily_record(config.OWM_API_KEY)
-    threading.Thread(target=_run, daemon=True).start()
-    return {"status": "triggered", "message": "Hourly record + daily finalize started"}
+    hourly  = record_hourly(config.OWM_API_KEY)
+    result  = finalize_daily_record(config.OWM_API_KEY)
+    return {
+        "hourly_saved":  hourly,
+        "daily_result":  result,
+        "message": f"Recorded {len(hourly)} sectors. Daily summary: {result.get('status')}"
+    }
 
 @app.get("/health")
 async def health():

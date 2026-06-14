@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+{% block title %}{{ sector }} – Kamonyi Planting Predictor{% endblock %}
+{% block content %}
+
+<nav class="text-sm text-gray-500 mb-5">
+  <a href="/" class="hover:text-green-600">Dashboard</a> <span class="mx-2">/</span>
+  <span class="text-gray-800 font-medium">{{ sector }}</span>
+</nav>
+
+{% if ngamba_note %}
+<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 flex gap-3 items-start">
+  <span class="text-amber-500 text-xl mt-0.5">⚠</span>
+  <div>
+    <div class="font-semibold text-amber-800 text-sm mb-1">Partial Data — Proxy Estimate</div>
+    <p class="text-xs text-amber-700 leading-relaxed">{{ ngamba_note }}</p>
+    <p class="text-xs text-amber-600 mt-1 font-medium">
+      Live weather data is being recorded from today onwards and will improve future predictions.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-3xl font-bold text-green-700">📍 {{ sector }}</h1>
+    <p class="text-gray-500 text-sm mt-1">Sector-level predictions — both seasons, historical trends, crop suggestions</p>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    {% for s in sectors %}
+    <a href="/sector/{{ s }}" class="text-xs px-3 py-1 rounded-full border transition {% if s==sector %}bg-green-600 text-white border-green-600{% else %}border-gray-300 hover:border-green-400 text-gray-600{% endif %}">{{ s }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-6 flex flex-wrap gap-4 items-end">
+  <div>
+    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Season</label>
+    <div class="flex rounded-lg overflow-hidden border border-gray-300">
+      <button id="btn-A" onclick="setSeason('A')" class="px-5 py-2 text-sm font-medium bg-green-600 text-white transition">Season A</button>
+      <button id="btn-B" onclick="setSeason('B')" class="px-5 py-2 text-sm font-medium bg-white text-gray-600 transition">Season B</button>
+    </div>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Target Year</label>
+    <select id="sel-year" onchange="loadAll()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      {% for y in range(current_year, current_year + 4) %}
+      <option value="{{ y }}" {% if loop.index==2 %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+<!-- 7-Day Forecast -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold text-gray-700">☁️ Live Weather Forecast <span id="forecast-day-count" class="text-sm font-normal text-gray-400"></span></h3>
+    <p class="text-xs text-gray-400">Live conditions for this sector</p>
+  </div>
+  <div id="forecast-strip" class="flex gap-3 overflow-x-auto pb-2">
+    <div class="flex justify-center w-full py-6"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Planting Decision Panel -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+  <h3 class="font-semibold text-gray-700 mb-1">🌾 Should You Plant Today?</h3>
+  <p class="text-xs text-gray-400 mb-4">Real-time decision based on current date, live forecast rainfall vs historical onset threshold</p>
+  <div id="decision-panel">
+    <div class="flex justify-center py-6"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Prediction Cards (A + B) -->
+<div id="pred-cards" class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-8">
+  <div class="flex justify-center py-10 col-span-2"><div class="spinner"></div></div>
+</div>
+
+<!-- Temperature detail -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+  <h3 class="font-semibold text-gray-700 mb-3">🌡 Temperature Forecast Detail</h3>
+  <div id="temp-detail" class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm"></div>
+</div>
+
+<!-- Crop suggestions -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-8">
+  <h3 class="font-semibold text-gray-700 mb-1">🌱 Crop Suggestions</h3>
+  <p class="text-xs text-gray-400 mb-4">Based on predicted rainfall and temperature for the selected season — suggestions only.</p>
+  <div id="crop-suggestions"><div class="flex justify-center py-4"><div class="spinner"></div></div></div>
+</div>
+
+<!-- Charts -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-3">📅 Onset Day – Historical Trend</h3>
+    <canvas id="chart-onset" height="250"></canvas>
+  </div>
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-3">🌧 Seasonal Rainfall – Historical</h3>
+    <canvas id="chart-rain" height="250"></canvas>
+  </div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-3">🌡 Max Temperature – Historical</h3>
+    <canvas id="chart-tmax" height="250"></canvas>
+  </div>
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-3">❄️ Min Temperature – Historical</h3>
+    <canvas id="chart-tmin" height="250"></canvas>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="bg-white rounded-2xl shadow-md p-5 mb-8">
+  <h3 class="font-semibold text-gray-700 mb-4">📊 Statistical Summary</h3>
+  <div id="stats-table"><div class="flex justify-center py-6"><div class="spinner"></div></div></div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const SECTOR = "{{ sector }}";
+let currentSeason = "A";
+let currentPredictions = [];
+
+function setSeason(s){
+  currentSeason=s;
+  document.getElementById("btn-A").className=`px-5 py-2 text-sm font-medium transition ${s==="A"?"bg-green-600 text-white":"bg-white text-gray-600"}`;
+  document.getElementById("btn-B").className=`px-5 py-2 text-sm font-medium transition ${s==="B"?"bg-green-600 text-white":"bg-white text-gray-600"}`;
+  loadHistory(); loadStats(); loadDecision(); updateCropsForSeason();
+}
+
+function updateCropsForSeason(){
+  const pred = currentPredictions.find(p=>p.season===currentSeason);
+  if(pred) buildCrops(pred);
+}
+
+async function loadPredictions(){
+  const year=document.getElementById("sel-year").value;
+  const res=await fetch(`/api/predict/${SECTOR}?year=${year}&include_crops=true`);
+  const data=await res.json();
+  currentPredictions=data.predictions;
+
+  document.getElementById("pred-cards").innerHTML=data.predictions.map(p=>{
+    const border=p.confidence==="HIGH"?"border-green-500":p.confidence==="MEDIUM"?"border-yellow-400":"border-red-400";
+    const badge=p.confidence==="HIGH"?"background:#dcfce7;color:#166534":p.confidence==="MEDIUM"?"background:#fef9c3;color:#854d0e":"background:#fee2e2;color:#991b1b";
+    const heatColor=p.temp_heat_label==="Very Hot"?"#dc2626":p.temp_heat_label==="Hot"?"#ea580c":p.temp_heat_label==="Warm"?"#d97706":"#16a34a";
+    const coldColor=p.temp_cold_label.includes("Very Cold")?"#1d4ed8":p.temp_cold_label.includes("Cold")?"#2563eb":p.temp_cold_label.includes("Cool")?"#0891b2":"#059669";
+    const yr = new Date().getFullYear();
+    const mo = new Date().getMonth()+1;
+    const bYr = mo > 6 ? yr+1 : yr;
+    const sName = p.season==="A"
+      ? `Season A – Urugaryi/Umuhindo (Sep ${yr} – Feb ${yr+1})`
+      : `Season B – Itumba (Mar ${bYr} – Jun ${bYr})`;
+    return `<div class="bg-white rounded-2xl shadow-md p-6 border-t-4 ${border}">
+      <div class="flex justify-between items-start mb-3">
+        <div>
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide">${sName}</div>
+          <div class="text-3xl font-bold text-green-700 mt-1">${p.predicted_onset_date}</div>
+        </div>
+        <span style="${badge};font-size:11px;padding:3px 10px;border-radius:999px;font-weight:600">${p.confidence}</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3 text-sm mt-4">
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-400">Planting Window</div>
+          <div class="font-medium">${p.planting_window_start}</div>
+          <div class="text-xs text-gray-500">→ ${p.planting_window_end}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-400">Expected Rainfall</div>
+          <div class="font-medium">${p.expected_rainfall_mm??'N/A'} mm</div>
+          <div class="text-xs text-gray-500">±${p.historical_std_onset??'?'} days variability</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-400">Predicted Max Temp</div>
+          <div class="font-medium" style="color:${heatColor}">${p.predicted_tmax}°C — ${p.temp_heat_label}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-400">Predicted Min Temp</div>
+          <div class="font-medium" style="color:${coldColor}">${p.predicted_tmin}°C — ${p.temp_cold_label}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-400">Season Length</div>
+          <div class="font-medium text-green-700">${p.predicted_length_weeks} weeks</div>
+          <div class="text-xs text-gray-500">${p.predicted_length_days} days · ${p.predicted_length_dekads} dekads</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-400">Trend / Data</div>
+          <div class="font-medium" style="color:${p.trend_slope_days_per_yr>0?'#ea580c':'#2563eb'}">${p.trend_slope_days_per_yr>0?'+':''}${p.trend_slope_days_per_yr} days/yr</div>
+          <div class="text-xs text-gray-500">${p.n_years_data} yrs · R²=${p.trend_r2}</div>
+        </div>
+      </div>
+      <div class="mt-4 text-xs text-gray-500 bg-green-50 rounded-lg p-3 leading-relaxed">${p.notes}</div>
+    </div>`;
+  }).join("");
+
+  // Temperature detail panel
+  const allPreds = data.predictions;
+  document.getElementById("temp-detail").innerHTML = allPreds.map(p=>{
+    const heatColor=p.temp_heat_label==="Very Hot"?"#dc2626":p.temp_heat_label==="Hot"?"#ea580c":p.temp_heat_label==="Warm"?"#d97706":"#16a34a";
+    const coldColor=p.temp_cold_label.includes("Cold")?"#2563eb":p.temp_cold_label.includes("Cool")?"#0891b2":"#059669";
+    return `<div class="bg-gray-50 rounded-xl p-4">
+      <div class="text-xs text-gray-400 font-semibold mb-2">Season ${p.season}</div>
+      <div class="text-lg font-bold" style="color:${heatColor}">🌞 ${p.predicted_tmax}°C</div>
+      <div class="text-sm font-medium" style="color:${heatColor}">${p.temp_heat_label}</div>
+      <div class="mt-2 text-lg font-bold" style="color:${coldColor}">🌙 ${p.predicted_tmin}°C</div>
+      <div class="text-sm font-medium" style="color:${coldColor}">${p.temp_cold_label}</div>
+    </div>`;
+  }).join("");
+
+  updateCropsForSeason();
+}
+
+function buildCrops(pred){
+  const cs = pred.crop_suggestions || {};
+  const suitable  = cs.suitable  || [];
+  const marginal  = cs.marginal  || [];
+  const notRec    = cs.not_recommended || [];
+
+  document.getElementById("crop-suggestions").innerHTML = `
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div>
+      <div class="text-sm font-semibold text-green-700 mb-2">✅ Suitable (${suitable.length})</div>
+      ${suitable.map(c=>`
+        <div class="bg-green-50 rounded-lg p-3 mb-2">
+          <div class="font-semibold text-green-800 text-sm">${c.crop}</div>
+          <div class="text-xs text-green-600">${c.category}</div>
+          <div class="text-xs text-gray-500 mt-1">${c.reason}</div>
+        </div>`).join("") || '<div class="text-xs text-gray-400">None for this season</div>'}
+    </div>
+    <div>
+      <div class="text-sm font-semibold text-yellow-700 mb-2">⚠ Marginal (${marginal.length})</div>
+      ${marginal.map(c=>`
+        <div class="bg-yellow-50 rounded-lg p-3 mb-2">
+          <div class="font-semibold text-yellow-800 text-sm">${c.crop}</div>
+          <div class="text-xs text-yellow-600">${c.category}</div>
+          <div class="text-xs text-gray-500 mt-1">${c.reason}</div>
+        </div>`).join("") || '<div class="text-xs text-gray-400">None</div>'}
+    </div>
+    <div>
+      <div class="text-sm font-semibold text-red-600 mb-2">❌ Not Recommended (${notRec.length})</div>
+      ${notRec.slice(0,5).map(c=>`
+        <div class="bg-red-50 rounded-lg p-2 mb-1">
+          <div class="font-semibold text-red-700 text-xs">${c.crop} <span class="text-gray-400 font-normal">— ${c.reason}</span></div>
+        </div>`).join("")}
+      ${notRec.length>5?`<div class="text-xs text-gray-400 mt-1">...and ${notRec.length-5} more</div>`:''}
+    </div>
+  </div>`;
+}
+
+function makeChart(id,labels,datasets,yLabel){
+  const ex=Chart.getChart(id); if(ex)ex.destroy();
+  new Chart(document.getElementById(id),{
+    type:"line",data:{labels,datasets},
+    options:{responsive:true,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"top"}},
+      scales:{y:{title:{display:true,text:yLabel}},x:{ticks:{maxTicksLimit:12}}}}
+  });
+}
+
+async function loadHistory(){
+  const res=await fetch(`/api/history/${SECTOR}?season=${currentSeason}`);
+  const d=await res.json();
+  const years=d.years, onsets=d.onset_days;
+  const n=years.length;
+  const sumX=years.reduce((a,b)=>a+b,0),sumY=onsets.reduce((a,b)=>a+(b||0),0);
+  const sumXY=years.reduce((s,x,i)=>s+x*(onsets[i]||0),0),sumX2=years.reduce((s,x)=>s+x*x,0);
+  const slope=(n*sumXY-sumX*sumY)/(n*sumX2-sumX*sumX),inter=(sumY-slope*sumX)/n;
+  const trend=years.map(x=>Math.round(slope*x+inter));
+  makeChart("chart-onset",years,[
+    {label:"Onset day",data:onsets,borderColor:"#16a34a",backgroundColor:"rgba(22,163,74,.1)",fill:true,tension:.3,pointRadius:3},
+    {label:"Trend",data:trend,borderColor:"#dc2626",borderDash:[5,4],pointRadius:0,fill:false}
+  ],"Day of year");
+  makeChart("chart-rain",years,[{label:"Rainfall (mm)",data:d.total_rainfall,borderColor:"#3b82f6",backgroundColor:"rgba(59,130,246,.12)",fill:true,tension:.3}],"mm");
+  makeChart("chart-tmax",years,[{label:"Max temp (°C)",data:d.mean_max_temp,borderColor:"#f97316",backgroundColor:"rgba(249,115,22,.1)",fill:true,tension:.3}],"°C");
+  makeChart("chart-tmin",years,[{label:"Min temp (°C)",data:d.mean_min_temp,borderColor:"#06b6d4",backgroundColor:"rgba(6,182,212,.1)",fill:true,tension:.3}],"°C");
+}
+
+async function loadStats(){
+  const res=await fetch(`/api/stats/${SECTOR}?season=${currentSeason}`);
+  const s=await res.json();
+  function card(label,value){return `<div class="bg-gray-50 rounded-xl p-4"><div class="text-xs text-gray-400 mb-1">${label}</div><div class="font-semibold text-gray-800">${value}</div></div>`;}
+  document.getElementById("stats-table").innerHTML=`
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 text-sm">
+      ${card("Years in data",`${s.year_min}–${s.year_max} (${s.n_obs} seasons)`)}
+      ${card("Mean onset",`Day ${Math.round(s.mean_onset)} (${s.onset_date_mean})`)}
+      ${card("Variability",`±${Math.round(s.std_onset)} days`)}
+      ${card("Trend",`${s.trend_slope>0?"+":""}${s.trend_slope.toFixed(3)} days/year`)}
+      ${card("Trend R²",s.trend_r2.toFixed(3))}
+      ${card("Mean rainfall",`${Math.round(s.mean_rainfall)} mm`)}
+      ${card("Rainfall ±",`±${Math.round(s.std_rainfall)} mm`)}
+      ${card("Mean max temp",s.mean_max_temp?s.mean_max_temp.toFixed(1)+" °C":"N/A")}
+      ${card("Mean min temp",s.mean_min_temp?s.mean_min_temp.toFixed(1)+" °C":"N/A")}
+    </div>`;
+}
+
+
+
+async function loadDecision(){
+  const year = document.getElementById("sel-year").value;
+  const panel = document.getElementById("decision-panel");
+  try {
+    const year = document.getElementById('sel-year')?.value || new Date().getFullYear();
+    const res  = await fetch(`/api/decision/${SECTOR}?season=${currentSeason}&year=${year}`);
+    if(!res.ok) throw new Error("Decision unavailable");
+    const d    = await res.json();
+
+    const colorMap = {
+      "green":  {bg:"bg-green-50",  border:"border-green-500",  text:"text-green-800",  badge:"bg-green-500"},
+      "orange": {bg:"bg-orange-50", border:"border-orange-400", text:"text-orange-800", badge:"bg-orange-400"},
+      "yellow": {bg:"bg-yellow-50", border:"border-yellow-400", text:"text-yellow-800", badge:"bg-yellow-400"},
+      "red":    {bg:"bg-red-50",    border:"border-red-400",    text:"text-red-800",    badge:"bg-red-400"},
+      "blue":   {bg:"bg-blue-50",   border:"border-blue-400",   text:"text-blue-800",   badge:"bg-blue-400"},
+    };
+    const c = colorMap[d.color] || colorMap["yellow"];
+
+    // Conditions checklist
+    const condHTML = d.conditions.map(cond=>`
+      <div class="flex items-center gap-2 text-xs py-1 border-b border-gray-100 last:border-0">
+        <span class="${cond.met?'text-green-500':'text-red-400'} font-bold text-base">${cond.met?'✔':'✖'}</span>
+        <span class="text-gray-600 flex-1">${cond.label}</span>
+        <span class="text-gray-400">${cond.value}</span>
+      </div>`).join("");
+
+    // Fitting crops
+    const cropsHTML = d.fitting_crops.length
+      ? d.fitting_crops.map(c=>`<span class="inline-block bg-green-100 text-green-800 text-xs rounded px-2 py-0.5 mr-1 mb-1">${c.crop} (${c.min_days}d)</span>`).join("")
+      : "<span class='text-gray-400 text-xs'>No suitable crops for remaining season length</span>";
+
+    panel.innerHTML = `
+    <div class="${c.bg} border-l-4 ${c.border} rounded-xl p-5">
+      <div class="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <div class="text-4xl mb-2">${d.emoji}</div>
+          <div class="text-xl font-bold ${c.text}">${d.headline}</div>
+          <div class="text-sm text-gray-600 mt-2 leading-relaxed">${d.advice}</div>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <div class="${c.badge} text-white text-xs font-bold px-3 py-1 rounded-full">${d.decision.replace(/_/g,' ')}</div>
+          <div class="text-xs text-gray-400 mt-2">${d.conditions_met}/${d.conditions_total} conditions met</div>
+        </div>
+      </div>
+
+      <!-- Action box -->
+      <div class="bg-white/70 rounded-lg p-3 mb-4 border border-gray-100">
+        <div class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Recommended Action</div>
+        <div class="text-sm font-medium text-gray-800">${d.action}</div>
+      </div>
+
+      <!-- Conditions checklist -->
+      <div class="bg-white/70 rounded-lg p-3 mb-4">
+        <div class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Conditions Checklist</div>
+        ${condHTML}
+      </div>
+
+      <!-- Stats row -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-xs">
+        <div class="bg-white/70 rounded-lg p-2 text-center">
+          <div class="text-gray-400">Current Dekad Rain</div>
+          <div class="font-bold text-blue-600">${d.current_dekad_rain_mm} mm</div>
+          <div class="text-gray-400">threshold: ${d.onset_threshold_mm}mm</div>
+        </div>
+        <div class="bg-white/70 rounded-lg p-2 text-center">
+          <div class="text-gray-400">Next Dekad Forecast</div>
+          <div class="font-bold text-blue-500">${d.next_dekad_rain_mm} mm</div>
+          <div class="text-gray-400">${d.has_live_forecast?'live forecast':'no forecast'}</div>
+        </div>
+        <div class="bg-white/70 rounded-lg p-2 text-center">
+          <div class="text-gray-400">Rain Probability</div>
+          <div class="font-bold text-purple-600">${d.precipitation_prob_pct}%</div>
+          <div class="text-gray-400">next 5 days</div>
+        </div>
+        <div class="bg-white/70 rounded-lg p-2 text-center">
+          <div class="text-gray-400">Season Remaining</div>
+          <div class="font-bold text-green-600">${d.weeks_left_in_season} weeks</div>
+          <div class="text-gray-400">${d.days_left_in_season} days</div>
+        </div>
+      </div>
+
+      <!-- Fitting crops -->
+      <div class="bg-white/70 rounded-lg p-3">
+        <div class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+          Crops That Fit Remaining Season (${d.days_left_in_season} days)
+        </div>
+        ${cropsHTML}
+      </div>
+    </div>`;
+
+  } catch(e) {
+    panel.innerHTML = `<div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-400 text-center">
+      Decision engine unavailable — ${e.message}
+    </div>`;
+  }
+}
+
+async function loadForecast(){
+  const strip = document.getElementById("forecast-strip");
+  const DAYS  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  try {
+    const res  = await fetch(`/api/weather/forecast/${SECTOR}`);
+    if(!res.ok) throw new Error("Forecast unavailable");
+    const data = await res.json();
+    document.getElementById("forecast-day-count").textContent = `(${data.n_days} days · ${data.forecast_start} to ${data.forecast_end})`;
+    strip.innerHTML = data.days.map(d=>{
+      const dt       = new Date(d.date+"T12:00:00");
+      const popPct   = Math.round(d.max_pop*100);
+      const rainColor= d.total_rain_mm>5?"#2563eb":d.total_rain_mm>1?"#60a5fa":"#94a3b8";
+      const popColor = popPct>60?"#2563eb":popPct>30?"#0891b2":"#94a3b8";
+      return `<div class="flex-shrink-0 w-28 bg-gray-50 rounded-2xl p-3 text-center border border-gray-100 hover:shadow-md transition">
+        <div class="text-xs font-bold text-gray-500">${DAYS[dt.getDay()]}</div>
+        <div class="text-xs text-gray-400 mb-1">${d.date.slice(5)}</div>
+        <img src="${d.icon_url}" class="w-10 h-10 mx-auto" alt="${d.description}">
+        <div class="text-sm font-bold text-orange-500 mt-1">${d.max_temp_c}°</div>
+        <div class="text-xs text-blue-500">${d.min_temp_c}°</div>
+        <div class="text-xs mt-1" style="color:${rainColor}">🌧 ${d.total_rain_mm} mm</div>
+        <div class="text-xs" style="color:${popColor}">💧 ${popPct}%</div>
+        <div class="text-xs text-gray-400 mt-1 leading-tight">${d.description}</div>
+      </div>`;
+    }).join("");
+  } catch(e) {
+    strip.innerHTML = `<div class="text-sm text-gray-400 py-4 w-full text-center">Live forecast unavailable — ${e.message}</div>`;
+  }
+}
+
+function loadAll(){loadPredictions();loadHistory();loadStats();loadDecision();}
+document.addEventListener("DOMContentLoaded",function(){loadAll();loadForecast();loadDecision();});
+</script>
+{% endblock %}

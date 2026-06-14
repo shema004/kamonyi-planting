@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Kamonyi Planting Predictor{% endblock %}</title>
+
+  <!-- Tailwind CSS (CDN – no build tools needed) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Leaflet (map) -->
+  <link  rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    /* Smooth page transitions */
+    body { transition: opacity .15s; }
+    .card { @apply bg-white rounded-2xl shadow-md p-5; }
+    /* Spinner */
+    .spinner {
+      border: 3px solid #e5e7eb;
+      border-top-color: #16a34a;
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      animation: spin .7s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* confidence badges */
+    .badge-HIGH   { @apply bg-green-100  text-green-800; }
+    .badge-MEDIUM { @apply bg-yellow-100 text-yellow-800; }
+    .badge-LOW    { @apply bg-red-100    text-red-700; }
+  </style>
+
+  {% block head %}{% endblock %}
+</head>
+
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+
+  <!-- ── Navigation ──────────────────────────────────────────────────────── -->
+  <nav class="bg-green-700 text-white shadow-lg sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 font-bold text-lg tracking-tight">
+        🌱 <span>Kamonyi Planting Predictor</span>
+      </a>
+      <div class="flex gap-6 text-sm font-medium">
+        <a href="/"        class="hover:text-green-200 transition">Dashboard</a>
+        <a href="/docs"    class="hover:text-green-200 transition">API Docs</a>
+        <a href="/logs"    class="hover:text-green-200 transition">Data Logs</a>
+        <a href="/health"  class="hover:text-green-200 transition">Health</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main content ────────────────────────────────────────────────────── -->
+  <main class="max-w-7xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────────── -->
+  <footer class="mt-16 border-t border-gray-200 bg-white py-6 text-center text-sm text-gray-500">
+    Kamonyi District Agricultural Planting System &nbsp;|&nbsp;
+    Data: 1999–2025 &nbsp;|&nbsp; Weather: OpenWeatherMap
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

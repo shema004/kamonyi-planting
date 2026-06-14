@@ -1,0 +1,21 @@
+name: Daily Recording
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 05:00 Rwanda time (UTC+2) every day
+    - cron: '0 15 * * *'  # 17:00 Rwanda time (UTC+2) every day
+  workflow_dispatch:       # allow manual trigger from GitHub
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake app and trigger recording
+        run: |
+          echo "Pinging app at $(date)"
+          # Wake the app (may be sleeping on free tier)
+          curl -s https://kamonyi-planting.onrender.com/health > /dev/null
+          sleep 30
+          # Visit dashboard - triggers record_in_background()
+          curl -s https://kamonyi-planting.onrender.com/ > /dev/null
+          echo "Done"

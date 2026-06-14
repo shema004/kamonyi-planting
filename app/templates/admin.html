@@ -1,0 +1,553 @@
+{% extends "base.html" %}
+{% block title %}Admin — Kamonyi Planting System{% endblock %}
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+<!-- Header -->
+<div class="bg-gradient-to-r from-gray-800 to-gray-600 rounded-2xl text-white px-8 py-6 mb-8 shadow-lg">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold mb-1">🔧 System Administration</h1>
+      <p class="text-gray-300 text-sm">Logged in as <strong>{{ current_user.name }}</strong> ({{ current_user.role }}) · {{ current_user.email }}</p>
+    </div>
+    <div class="flex gap-3">
+      <a href="/" class="bg-white/20 hover:bg-white/30 text-white text-sm px-4 py-2 rounded-lg transition">← Dashboard</a>
+      <a href="/admin/logout" class="bg-red-500/80 hover:bg-red-500 text-white text-sm px-4 py-2 rounded-lg transition">Logout</a>
+    </div>
+  </div>
+</div>
+
+<!-- Health Cards -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8" id="health-cards">
+  <div class="bg-white rounded-2xl shadow p-4 text-center"><div class="text-2xl">⏳</div><div class="text-xs text-gray-400 mt-1">Loading...</div></div>
+</div>
+
+<!-- Tab navigation -->
+<div class="flex gap-2 mb-6 flex-wrap">
+  {% for tab in [('overview','📊 Overview'),('data','💾 Data Records'),('users','👥 Users'),('settings','⚙️ Settings')] %}
+  <button onclick="showTab('{{ tab[0] }}')" id="tab-btn-{{ tab[0] }}"
+    class="px-4 py-2 rounded-lg text-sm font-medium transition tab-btn bg-gray-100 text-gray-600 hover:bg-gray-200">
+    {{ tab[1] }}
+  </button>
+  {% endfor %}
+</div>
+
+<!-- ── TAB: OVERVIEW ── -->
+<div id="tab-overview" class="tab-panel">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- DB Summary -->
+    <div class="bg-white rounded-2xl shadow-md p-5">
+      <h3 class="font-semibold text-gray-700 mb-4">💾 Database Summary</h3>
+      <div id="db-summary" class="space-y-2 text-sm">
+        <div class="flex justify-center py-4"><div class="spinner"></div></div>
+      </div>
+    </div>
+    <!-- Calendar Recording -->
+    <div class="bg-white rounded-2xl shadow-md p-5">
+      <h3 class="font-semibold text-gray-700 mb-1">📅 Calendar Recording</h3>
+      <p class="text-xs text-gray-400 mb-4">Daily weather per sector — auto-integrates into the prediction model after 12 months</p>
+      <div class="space-y-2 text-sm">
+        <div class="flex justify-between border-b py-2"><span class="text-gray-500">Total records</span><span class="font-semibold">{{ cal_summary.total_records }}</span></div>
+        <div class="flex justify-between border-b py-2"><span class="text-gray-500">Date range</span><span class="font-semibold">{{ cal_summary.date_from or '—' }} → {{ cal_summary.date_to or '—' }}</span></div>
+        <div class="flex justify-between border-b py-2"><span class="text-gray-500">Unique days</span><span class="font-semibold">{{ cal_summary.unique_days }}</span></div>
+        <div class="flex justify-between border-b py-2"><span class="text-gray-500">Sectors recorded</span><span class="font-semibold">{{ cal_summary.unique_sectors }}</span></div>
+        <div class="flex justify-between py-2">
+          <span class="text-gray-500">Pending integration</span>
+          <span class="font-semibold {% if cal_summary.pending_integration > 0 %}text-orange-600{% else %}text-green-600{% endif %}">
+            {{ cal_summary.pending_integration }} records
+          </span>
+        </div>
+      </div>
+      <div class="mt-3 bg-blue-50 rounded-xl p-3 text-xs text-blue-700">
+        ℹ Records older than 12 months auto-integrate into the model at every startup, improving onset predictions and recommendations.
+      </div>
+    </div>
+  </div>
+  <!-- Recording Log -->
+  <div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+    <h3 class="font-semibold text-gray-700 mb-4">📋 Recent Recording Log</h3>
+    <div id="recording-log"><div class="flex justify-center py-4"><div class="spinner"></div></div></div>
+  </div>
+  <!-- Manual Actions -->
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <h3 class="font-semibold text-gray-700 mb-4">⚡ Actions</h3>
+    <div class="flex flex-wrap gap-3">
+      <button onclick="triggerRecord()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg transition">📡 Record Today's Weather</button>
+      <a href="/health" target="_blank" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition">🏥 Health Check</a>
+      <a href="/api/season/current" target="_blank" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition">📅 Season Status</a>
+      <a href="/docs" target="_blank" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg transition">📖 API Docs</a>
+    </div>
+    <div id="action-result" class="mt-3 text-sm text-gray-600"></div>
+  </div>
+</div>
+
+<!-- ── TAB: DATA ── -->
+<div id="tab-data" class="tab-panel hidden">
+  <!-- Predictions vs Actuals -->
+  <div class="bg-white rounded-2xl shadow-md p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-gray-700">📊 Predictions vs Actuals</h3>
+      <div class="flex gap-2">
+        <select id="pa-season" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+          <option value="">All seasons</option>
+          <option value="A">Season A</option><option value="B">Season B</option>
+        </select>
+        <select id="pa-sector" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+          <option value="">All sectors</option>
+          {% for s in sectors %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+        <button onclick="loadPvA()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg">Load</button>
+      </div>
+    </div>
+    <div id="pva-table"><div class="flex justify-center py-6"><div class="spinner"></div></div></div>
+  </div>
+  <!-- Daily Records Table -->
+  <div class="bg-white rounded-2xl shadow-md p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-semibold text-gray-700">📅 Daily Weather Records — Per Sector</h3>
+        <p class="text-xs text-gray-400 mt-0.5">Rainfall (mm), Max Temp (°C), Min Temp (°C) recorded every day for each sector</p>
+      </div>
+      <div class="flex gap-2 items-center">
+        <select id="cal-days" onchange="loadCalendar()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
+        <button onclick="loadCalendar()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg">Refresh</button>
+      </div>
+    </div>
+    <div id="cal-table"><div class="flex justify-center py-6"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- ── TAB: USERS ── -->
+<div id="tab-users" class="tab-panel hidden">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- User list -->
+    <div class="bg-white rounded-2xl shadow-md p-5">
+      <h3 class="font-semibold text-gray-700 mb-4">👥 Admin Users</h3>
+      <div class="space-y-3">
+        {% for u in admins %}
+        <div class="flex items-center justify-between bg-gray-50 rounded-xl p-3" id="user-row-{{ u.id }}">
+          <div>
+            <div class="font-semibold text-sm">{{ u.name }}</div>
+            <div class="text-xs text-gray-400">{{ u.email }}</div>
+            <div class="text-xs mt-0.5">
+              <span class="px-2 py-0.5 rounded-full text-xs font-semibold
+                {% if u.role == 'superadmin' %}bg-purple-100 text-purple-700
+                {% elif u.role == 'admin' %}bg-blue-100 text-blue-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">
+                {{ u.role }}
+              </span>
+            </div>
+            <div class="text-xs text-gray-300 mt-1">Last login: {{ u.last_login[:10] if u.last_login else 'Never' }}</div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <button onclick="changePassword({{ u.id }}, '{{ u.name }}')"
+              class="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-2 py-1 rounded-lg">🔑 Password</button>
+            {% if u.email != current_user.email %}
+            <button onclick="deleteUser({{ u.id }}, '{{ u.name }}')"
+              class="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded-lg">🗑 Delete</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <!-- Add user -->
+    <div class="bg-white rounded-2xl shadow-md p-5">
+      <h3 class="font-semibold text-gray-700 mb-4">➕ Add New User</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Full Name</label>
+          <input id="new-name" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Jean Pierre Habimana">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Email</label>
+          <input id="new-email" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="staff@kamonyi.gov.rw">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Password</label>
+          <input id="new-password" type="password" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Role</label>
+          <select id="new-role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="staff">Staff (view only)</option>
+            <option value="admin">Admin (full access)</option>
+            {% if current_user.role == 'superadmin' %}<option value="superadmin">Super Admin</option>{% endif %}
+          </select>
+        </div>
+        <button onclick="createUser()" class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg text-sm transition">
+          Create User
+        </button>
+        <div id="user-result" class="text-sm text-gray-600"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── TAB: SETTINGS ── -->
+<div id="tab-settings" class="tab-panel hidden">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Site settings -->
+    <div class="bg-white rounded-2xl shadow-md p-5">
+      <h3 class="font-semibold text-gray-700 mb-4">🌐 Site Settings</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Site Title</label>
+          <input id="s-site_title" type="text" value="{{ settings.get('site_title','Kamonyi Planting Predictor') }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Ribbon Banner Image URL</label>
+          <input id="s-ribbon_image_url" type="url" value="{{ settings.get('ribbon_image_url','') }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="https://example.com/banner.jpg">
+          <p class="text-xs text-gray-400 mt-1">Paste a direct image URL to show a banner image on the dashboard header</p>
+          {% if settings.get('ribbon_image_url') %}
+          <img src="{{ settings.ribbon_image_url }}" class="mt-2 rounded-lg h-16 w-full object-cover" alt="Current banner">
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <!-- Model settings -->
+    <div class="bg-white rounded-2xl shadow-md p-5">
+      <h3 class="font-semibold text-gray-700 mb-4">🧠 Model Settings</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Auto-integrate after (months)</label>
+          <input id="s-auto_integrate_months" type="number" min="6" max="24" value="{{ settings.get('auto_integrate_months','12') }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          <p class="text-xs text-gray-400 mt-1">Calendar data older than this will be included in model predictions</p>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Planting Window (days)</label>
+          <input id="s-planting_window_days" type="number" min="5" max="21" value="{{ settings.get('planting_window_days','10') }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 mb-1">Onset Threshold (mm/dekad)</label>
+          <input id="s-onset_threshold_mm" type="number" min="10" max="40" value="{{ settings.get('onset_threshold_mm','20') }}"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          <p class="text-xs text-gray-400 mt-1">Minimum rainfall per 10-day period to confirm season onset</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mt-4 flex justify-end">
+    <button onclick="saveSettings()" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-2 rounded-lg text-sm transition">
+      💾 Save All Settings
+    </button>
+  </div>
+  <div id="settings-result" class="mt-3 text-sm text-gray-600 text-right"></div>
+</div>
+
+</div><!-- end max-w -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Tab system ────────────────────────────────────────────────────────────
+function showTab(name){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.classList.remove('bg-green-600','text-white');
+    b.classList.add('bg-gray-100','text-gray-600');
+  });
+  document.getElementById('tab-'+name).classList.remove('hidden');
+  const btn = document.getElementById('tab-btn-'+name);
+  btn.classList.remove('bg-gray-100','text-gray-600');
+  btn.classList.add('bg-green-600','text-white');
+  // Lazy load
+  if(name==='data') { loadPvA(); loadCalendar(); }
+}
+
+// ── Health cards ──────────────────────────────────────────────────────────
+async function loadHealth(){
+  try {
+    const res  = await fetch("/health");
+    const data = await res.json();
+    document.getElementById("health-cards").innerHTML=`
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-green-500">
+        <div class="text-2xl font-bold text-green-600">${data.status==='ok'?'✅':'❌'}</div>
+        <div class="text-xs text-gray-400 mt-1">System</div>
+        <div class="font-semibold text-sm">${data.status.toUpperCase()}</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-blue-500">
+        <div class="text-2xl font-bold text-blue-600">${data.sectors}</div>
+        <div class="text-xs text-gray-400 mt-1">Sectors</div>
+        <div class="font-semibold text-sm">Active</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-purple-500">
+        <div class="text-2xl font-bold text-purple-600">${data.db_predictions||0}</div>
+        <div class="text-xs text-gray-400 mt-1">Saved Predictions</div>
+        <div class="font-semibold text-sm">${data.db_actuals||0} actuals</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 text-center border-t-4 border-orange-500">
+        <div class="text-2xl font-bold text-orange-600">${data.db_daily_records||0}</div>
+        <div class="text-xs text-gray-400 mt-1">Daily Records</div>
+        <div class="font-semibold text-sm">${data.db_days||0} days</div>
+      </div>`;
+  } catch(e) {}
+}
+
+// ── DB summary ────────────────────────────────────────────────────────────
+async function loadDbSummary(){
+  try {
+    const res  = await fetch("/api/recorder/summary");
+    const data = await res.json();
+    document.getElementById("db-summary").innerHTML=[
+      ["Total daily records", data.total_records],
+      ["Date from", data.date_from||"—"],
+      ["Date to",   data.date_to  ||"—"],
+      ["Unique days", data.unique_days],
+    ].map(([l,v])=>`<div class="flex justify-between border-b py-2"><span class="text-gray-500">${l}</span><span class="font-semibold">${v}</span></div>`).join("");
+  } catch(e) {}
+}
+
+// ── Recording log ─────────────────────────────────────────────────────────
+async function loadLog(){
+  try {
+    const res  = await fetch("/api/recorder/log?limit=10");
+    const data = await res.json();
+    const rows = (data.log||[]).map(l=>`
+      <div class="flex items-center gap-2 border-b py-2 text-xs">
+        <span class="${l.status==='ok'?'text-green-500':'text-red-500'} font-bold">${l.status==='ok'?'✅':'❌'}</span>
+        <span class="font-medium">${l.date}</span>
+        <span class="text-gray-400 flex-1">${l.message}</span>
+      </div>`).join("");
+    document.getElementById("recording-log").innerHTML=rows||"<div class='text-gray-400 text-sm'>No recordings yet</div>";
+  } catch(e) {}
+}
+
+// ── Predictions vs Actuals ────────────────────────────────────────────────
+async function loadPvA(){
+  document.getElementById("pva-table").innerHTML=`<div class="flex justify-center py-4"><div class="spinner"></div></div>`;
+  try {
+    const s = document.getElementById("pa-season").value;
+    const sec = document.getElementById("pa-sector").value;
+    let url = "/api/records/predictions-vs-actuals";
+    const p = []; if(s) p.push(`season=${s}`); if(sec) p.push(`sector=${sec}`);
+    if(p.length) url += "?" + p.join("&");
+    const res  = await fetch(url);
+    const data = await res.json();
+    const records = data.records||[];
+    if(!records.length){
+      document.getElementById("pva-table").innerHTML=`<div class="text-gray-400 text-sm py-4 text-center">No comparison data yet. Predictions auto-save when you use the dashboard.</div>`;
+      return;
+    }
+    document.getElementById("pva-table").innerHTML=`
+      <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead><tr class="text-left text-gray-400 border-b uppercase tracking-wide">
+          <th class="pb-2 pr-3">Year</th><th class="pb-2 pr-3">Sector</th><th class="pb-2 pr-3">Season</th>
+          <th class="pb-2 pr-3">Pred Onset</th><th class="pb-2 pr-3">Act Onset</th><th class="pb-2 pr-3">Error</th>
+          <th class="pb-2 pr-3">Pred Rain</th><th class="pb-2 pr-3">Act Rain</th><th class="pb-2">Conf</th>
+        </tr></thead>
+        <tbody>${records.map(r=>{
+          const err=r.onset_error_days;
+          const ec=Math.abs(err||0)<=7?"text-green-600":Math.abs(err||0)<=14?"text-yellow-600":"text-red-600";
+          return `<tr class="border-b hover:bg-gray-50">
+            <td class="py-2 pr-3">${r.year}</td><td class="py-2 pr-3">${r.sector}</td><td class="py-2 pr-3">${r.season}</td>
+            <td class="py-2 pr-3">${r.predicted_onset_date||"—"}</td><td class="py-2 pr-3">${r.actual_onset_date||"—"}</td>
+            <td class="py-2 pr-3 ${ec} font-semibold">${err!=null?(err>0?"+":"")+err+"d":"—"}</td>
+            <td class="py-2 pr-3">${r.predicted_rainfall_mm?Math.round(r.predicted_rainfall_mm)+"mm":"—"}</td>
+            <td class="py-2 pr-3">${r.actual_rainfall_mm?Math.round(r.actual_rainfall_mm)+"mm":"—"}</td>
+            <td class="py-2"><span class="px-2 py-0.5 rounded-full text-xs font-semibold ${r.confidence==='HIGH'?'bg-green-100 text-green-700':r.confidence==='MEDIUM'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-600'}">${r.confidence||"—"}</span></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>
+      <div class="text-xs text-gray-400 mt-2">${records.length} comparison rows</div>`;
+  } catch(e) {
+    document.getElementById("pva-table").innerHTML=`<div class="text-red-500 text-sm">${e.message}</div>`;
+  }
+}
+
+// ── Daily Records ────────────────────────────────────────────────────────
+async function loadCalendar(){
+  document.getElementById("cal-table").innerHTML=
+    `<div class="flex justify-center py-6"><div class="spinner"></div></div>`;
+  try {
+    const days = document.getElementById("cal-days").value;
+    const res  = await fetch(`/admin/api/calendar?days=${days}`);
+    const data = await res.json();
+    const records = data.records || [];
+    const dates   = data.dates   || [];
+    const sectors = data.sectors || [];
+
+    if(!records.length || !dates.length){
+      document.getElementById("cal-table").innerHTML=
+        `<div class="text-gray-400 text-sm py-6 text-center">
+          <div class="text-4xl mb-2">📭</div>
+          No daily records yet.<br>
+          <span class="text-xs">The recorder runs automatically every day at startup.<br>
+          Click <b>"Record Today's Weather"</b> on the Overview tab to trigger it now.</span>
+        </div>`;
+      return;
+    }
+
+    // Build a lookup: {date: {sector: {temp_max, temp_min, rainfall_mm}}}
+    const lookup = {};
+    records.forEach(r => {
+      if(!lookup[r.date]) lookup[r.date] = {};
+      lookup[r.date][r.sector] = {
+        max:  r.temp_max  != null ? r.temp_max.toFixed(1)  : "—",
+        min:  r.temp_min  != null ? r.temp_min.toFixed(1)  : "—",
+        rain: r.rainfall_mm != null ? r.rainfall_mm.toFixed(1) : "—",
+      };
+    });
+
+    // Count sectors recorded per date for status badge
+    const TOTAL_SECTORS = sectors.length;
+
+    // Build table: rows = dates, columns = sectors × 3 fields
+    // For readability: one row per date, one column group per sector
+    // Each sector column shows: Rain / Tmax / Tmin stacked
+    const headerCols = sectors.map(s =>
+      `<th class="pb-2 px-2 text-center border-l border-gray-100" colspan="3">${s}</th>`
+    ).join("");
+
+    const subHeader = sectors.map(() =>
+      `<th class="pb-1 px-1 text-gray-300 font-normal border-l border-gray-100">Rain</th>
+       <th class="pb-1 px-1 text-gray-300 font-normal">Max</th>
+       <th class="pb-1 px-1 text-gray-300 font-normal">Min</th>`
+    ).join("");
+
+    const bodyRows = dates.map(date => {
+      const dayData  = lookup[date] || {};
+      const nSectors = Object.keys(dayData).length;
+      const complete = nSectors === TOTAL_SECTORS;
+      const statusBadge = complete
+        ? `<span class="text-green-600 font-bold">✅ ${nSectors}/${TOTAL_SECTORS}</span>`
+        : `<span class="text-red-500 font-bold">⚠ ${nSectors}/${TOTAL_SECTORS}</span>`;
+
+      const cells = sectors.map(s => {
+        const v = dayData[s];
+        if(!v) return `<td class="px-1 py-2 text-gray-300 border-l border-gray-50 text-center">—</td>
+                       <td class="px-1 py-2 text-gray-300 text-center">—</td>
+                       <td class="px-1 py-2 text-gray-300 text-center">—</td>`;
+        return `<td class="px-1 py-2 text-blue-600 border-l border-gray-50 text-center">${v.rain}mm</td>
+                <td class="px-1 py-2 text-orange-500 text-center">${v.max}°</td>
+                <td class="px-1 py-2 text-blue-400 text-center">${v.min}°</td>`;
+      }).join("");
+
+      return `<tr class="border-b hover:bg-gray-50 ${complete?'':'bg-red-50/30'}">
+        <td class="py-2 pr-3 font-semibold text-gray-700 whitespace-nowrap">${date}</td>
+        <td class="py-2 pr-3 text-xs">${statusBadge}</td>
+        ${cells}
+      </tr>`;
+    }).join("");
+
+    document.getElementById("cal-table").innerHTML = `
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-50 border-b-2 border-gray-200">
+              <th class="pb-2 pr-3 text-left text-gray-500">Date</th>
+              <th class="pb-2 pr-3 text-left text-gray-500">Coverage</th>
+              ${headerCols}
+            </tr>
+            <tr class="bg-gray-50 border-b border-gray-200 text-xs">
+              <th colspan="2"></th>
+              ${subHeader}
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+      <div class="flex items-center gap-4 mt-3 text-xs text-gray-400">
+        <span>✅ = all ${TOTAL_SECTORS} sectors recorded</span>
+        <span>⚠ = some sectors missing (check API or connection)</span>
+        <span>${dates.length} days shown</span>
+      </div>`;
+
+  } catch(e) {
+    document.getElementById("cal-table").innerHTML=
+      `<div class="text-red-500 text-sm py-4 text-center">Error loading records: ${e.message}</div>`;
+  }
+}
+
+// ── Manual record trigger ─────────────────────────────────────────────────
+async function triggerRecord(){
+  const btn = event.target;
+  btn.disabled=true; btn.textContent="Recording...";
+  document.getElementById("action-result").textContent="";
+  try {
+    const res  = await fetch("/admin/api/record-now", {method:"POST"});
+    const data = await res.json();
+    document.getElementById("action-result").innerHTML=
+      `<span class="text-green-600">✅ Recording triggered — check the log in 30 seconds</span>`;
+    setTimeout(()=>{loadLog(); loadHealth();}, 35000);
+  } catch(e) {
+    document.getElementById("action-result").textContent="Error: "+e.message;
+  }
+  btn.disabled=false; btn.textContent="📡 Record Today's Weather";
+}
+
+// ── User management ───────────────────────────────────────────────────────
+async function createUser(){
+  const name  = document.getElementById("new-name").value.trim();
+  const email = document.getElementById("new-email").value.trim();
+  const pass  = document.getElementById("new-password").value;
+  const role  = document.getElementById("new-role").value;
+  if(!name||!email||!pass){ document.getElementById("user-result").textContent="All fields required"; return; }
+  try {
+    const res  = await fetch("/admin/api/users/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,email,password:pass,role})});
+    const data = await res.json();
+    if(data.status==="ok"){
+      document.getElementById("user-result").innerHTML=`<span class="text-green-600">✅ User created. Refresh page to see them.</span>`;
+      document.getElementById("new-name").value="";
+      document.getElementById("new-email").value="";
+      document.getElementById("new-password").value="";
+    } else {
+      document.getElementById("user-result").innerHTML=`<span class="text-red-500">❌ Could not create user (email may already exist)</span>`;
+    }
+  } catch(e) { document.getElementById("user-result").textContent="Error: "+e.message; }
+}
+
+async function changePassword(userId, name){
+  const pass = prompt(`New password for ${name}:`);
+  if(!pass) return;
+  const res  = await fetch(`/admin/api/users/${userId}/password`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pass})});
+  const data = await res.json();
+  alert(data.status==="ok" ? `✅ Password updated for ${name}` : "❌ Failed");
+}
+
+async function deleteUser(userId, name){
+  if(!confirm(`Delete user ${name}? This cannot be undone.`)) return;
+  const res  = await fetch(`/admin/api/users/${userId}`,{method:"DELETE"});
+  const data = await res.json();
+  if(data.status==="ok"){
+    document.getElementById(`user-row-${userId}`)?.remove();
+  } else {
+    alert("Could not delete user");
+  }
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────
+async function saveSettings(){
+  const keys = ["site_title","ribbon_image_url","auto_integrate_months","planting_window_days","onset_threshold_mm"];
+  const body = {};
+  keys.forEach(k => {
+    const el = document.getElementById("s-"+k);
+    if(el) body[k] = el.value;
+  });
+  try {
+    const res  = await fetch("/admin/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const data = await res.json();
+    document.getElementById("settings-result").innerHTML=`<span class="text-green-600">✅ Settings saved (${data.saved} keys)</span>`;
+  } catch(e) {
+    document.getElementById("settings-result").innerHTML=`<span class="text-red-500">❌ ${e.message}</span>`;
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", function(){
+  showTab("overview");
+  loadHealth();
+  loadDbSummary();
+  loadLog();
+});
+</script>
+{% endblock %}

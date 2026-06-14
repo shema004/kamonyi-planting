@@ -1,0 +1,16 @@
+name: Keep Alive
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Kamonyi app
+        run: |
+          curl -f https://kamonyi-planting.onrender.com/health || echo "App waking up..."
